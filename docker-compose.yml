@@ -1,0 +1,24 @@
+services:
+  kazam:
+    build: .
+    container_name: kazam-music
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "8080"
+      TRUST_PROXY: "true"
+      CACHE_DIR: "/app/data/cache"
+    volumes:
+      - kazam_cache:/app/data/cache
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  kazam_cache:

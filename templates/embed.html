@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KAZAM Embed</title>
+<link rel="stylesheet" href="/static/style.css">
+<script>
+  window.KAZAM_PUBLIC_BASE = {{ public_base|tojson }};
+  window.KAZAM_EMBED_ID = {{ song_id|tojson }};
+  window.KAZAM_EMBED_AUTOPLAY = {{ autoplay|tojson }};
+</script>
+</head>
+<body class="embed-body">
+  <div class="embed-card" id="card">
+    <img id="cover" alt="" src="" style="display:none">
+    <div class="embed-meta">
+      <div class="t" id="title">加载中…</div>
+      <div class="a" id="artist"></div>
+      <div class="controls">
+        <button type="button" id="btnPlay">▶ 播放</button>
+        <a id="openFull" href="/" target="_blank" rel="noopener">打开完整播放器</a>
+      </div>
+    </div>
+  </div>
+  <audio id="audio" preload="metadata"></audio>
+  <script src="/static/embed.js"></script>
+</body>
+</html>

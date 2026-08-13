@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#facc15" id="metaThemeColor">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>KAZAM · music.yeuxark.com</title>
+<link rel="icon" href="/favicon.ico">
+<link rel="stylesheet" href="/static/style.css">
+<script>window.KAZAM_PUBLIC_BASE = {{ public_base|tojson }};</script>
+<!-- 防闪白：尽早应用主题 -->
+<script>
+(function () {
+  try {
+    var t = localStorage.getItem("kazam.theme");
+    if (t !== "light" && t !== "dark") {
+      t = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark" : "light";
+    }
+    document.documentElement.setAttribute("data-theme", t);
+    var m = document.getElementById("metaThemeColor");
+    if (m) m.setAttribute("content", t === "dark" ? "#000000" : "#facc15");
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-row1">
+    <a href="/" class="logo" id="logoBtn" title="KAZAM">KAZAM!</a>
+    <div class="search-wrap">
+      <input id="searchInput" placeholder="搜歌..." autofocus>
+      <button type="button" id="searchBtn" title="搜索">→</button>
+    </div>
+    <button type="button" class="theme-toggle" id="btnTheme" title="切换浅色 / 黑夜" aria-label="切换主题">
+      <span class="icon-moon" aria-hidden="true">☾</span>
+      <span class="icon-sun" aria-hidden="true">☀</span>
+    </button>
+  </div>
+  <div class="top-nav">
+    <div class="top-tabs" role="tablist">
+      <button type="button" id="tabSearch" class="active">🔍 搜索</button>
+      <button type="button" id="tabPlaylist">📋 列表</button>
+      <button type="button" id="tabRadio">📻 电台</button>
+      <button type="button" id="tabLibrary" class="admin-only">💾 曲库</button>
+      <button type="button" id="tabLyrics">🎤 歌词</button>
+    </div>
+    <div class="top-actions">
+      <button type="button" id="btnRadio" title="生成/刷新今日电台（不覆盖自选列表）">📻 今日电台</button>
+      <button type="button" id="btnResolve" title="粘贴 ID/链接">✨ 解析</button>
+      <button type="button" id="btnLoadPl" title="导入网易云歌单到「我的列表」">📂 歌单</button>
+      <button type="button" id="btnUpstream" class="admin-only" title="选择上游 API">上游</button>
+      <button type="button" id="btnAdminExit" class="admin-only" title="退出管理员">退出</button>
+    </div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="left-player" id="leftPlayer">
+    <div class="np-cover-wrap" id="npCoverWrap">
+      <div class="placeholder">♪</div>
+      <img id="npCover" alt="">
+    </div>
+    <div class="np-title" id="npTitle">KAZAM!</div>
+    <div class="np-artist" id="npArtist">等待播放</div>
+    <div class="np-level-row" title="播放与下载共用此音质（chksz 支持臻品母带）">
+      <label class="np-level-label" for="audioLevel">音质</label>
+      <select id="audioLevel" class="np-level-select" aria-label="选择音质">
+        <option value="standard">标准</option>
+        <option value="higher">较高</option>
+        <option value="exhigh" selected>极高 320k</option>
+        <option value="lossless">无损 FLAC</option>
+        <option value="hires">Hi-Res</option>
+        <option value="jymaster">💎 臻品母带</option>
+      </select>
+    </div>
+    <div class="np-quality" id="npQuality"></div>
+    <div class="np-cache-badge admin-only" id="npCacheBadge" style="display:none;">💾 已缓存</div>
+    <div class="np-actions">
+      <button type="button" id="btnDlSong">⬇ 下载</button>
+      <button type="button" id="btnDlLyric">📜 歌词</button>
+      <button type="button" id="btnShare">🔗 分享</button>
+      <button type="button" id="btnCopyUrl" class="admin-only" title="复制稳定 stream 地址">📋 地址</button>
+      <button type="button" id="btnCacheSong" class="admin-only" title="缓存到服务器">💾 缓存到服务器</button>
+    </div>
+    <div class="progress-wrap">
+      <span id="timeCur">0:00</span>
+      <div class="prog-track" id="progTrack"><div class="prog-fill" id="progFill"></div></div>
+      <span id="timeTot">0:00</span>
+    </div>
+    <div class="np-controls">
+      <button type="button" id="btnMode" title="列表循环" aria-label="播放模式">🔁</button>
+      <button type="button" id="btnPrev" aria-label="上一首">⏮</button>
+      <button type="button" class="play-btn" id="btnPlay" aria-label="播放">▶</button>
+      <button type="button" id="btnNext" aria-label="下一首">⏭</button>
+    </div>
+    <div class="vol-row">
+      <button type="button" id="btnVolDown" class="vol-step" title="减小音量" aria-label="减小音量">−</button>
+      <button type="button" id="btnVol" title="静音" aria-label="静音">🔊</button>
+      <input type="range" id="volSlider" min="0" max="100" value="70" step="1" aria-label="音量">
+      <button type="button" id="btnVolUp" class="vol-step" title="增大音量" aria-label="增大音量">+</button>
+      <span class="vol-pct" id="volPct">70%</span>
+    </div>
+    <div class="vol-ios-tip" id="volIosTip" hidden>iOS 需用手机侧边音量键调节</div>
+  </div>
+
+  <div class="right-panel" id="rightPanel">
+    <div class="rp-header">
+      <span id="rpTitle">搜 索 结 果</span>
+      <span id="rpCount">—</span>
+      <div class="tools" id="rpTools">
+        <button type="button" id="btnClearPl">清空自选</button>
+        <button type="button" id="btnExportPl">导出</button>
+        <button type="button" id="btnImportPl">导入</button>
+        <button type="button" id="btnReloadRadio" style="display:none">刷新电台</button>
+        <button type="button" id="btnClearRadio" style="display:none">清空电台</button>
+        <button type="button" id="btnRefreshLib" class="admin-only">刷新库</button>
+      </div>
+    </div>
+    <div class="rp-body" id="rpBody"></div>
+  </div>
+</div>
+
+<audio id="audio" preload="auto" crossorigin="anonymous"></audio>
+<div class="toast" id="toast"></div>
+<input type="file" id="importFile" accept="application/json,.json" style="display:none">
+<a class="footer-link" href="https://yeuxark.com" target="_blank" rel="noopener">← yeuxark.com</a>
+
+<!-- Admin: upstream picker + probe + add/delete -->
+<div class="modal-mask" id="upstreamModal" hidden>
+  <div class="modal-panel upstream-panel" role="dialog" aria-labelledby="upModalTitle">
+    <div class="modal-head">
+      <h2 id="upModalTitle">上游 API 管理</h2>
+      <button type="button" class="modal-close" id="upModalClose" title="关闭">×</button>
+    </div>
+    <p class="modal-hint">测活从 <strong>本 VPS</strong> 访问上游（与浏览器网络无关）。仅第三方代理，不含网易官方接口。可增删自定义源。</p>
+    <div class="up-toolbar">
+      <button type="button" id="upBtnProbe" class="up-btn primary">⚡ 测速 / 测活</button>
+      <button type="button" id="upBtnShowAdd" class="up-btn">＋ 添加源</button>
+      <span class="up-status" id="upProbeStatus">尚未测速</span>
+    </div>
+    <div class="up-add-form" id="upAddForm" hidden>
+      <div class="up-add-row">
+        <label>名称<input type="text" id="upAddName" placeholder="例如 Meting 备用2" maxlength="40"></label>
+        <label>类型
+          <select id="upAddKind">
+            <option value="meting">Meting 协议</option>
+            <option value="chksz">chksz 风格</option>
+            <option value="ors">ORS 无损 (QQ/酷狗/酷我/咪咕)</option>
+          </select>
+        </label>
+      </div>
+      <div class="up-add-row">
+        <label class="grow">Endpoint URL
+          <input type="url" id="upAddEndpoint" placeholder="https://example.com/meting/" maxlength="200">
+        </label>
+      </div>
+      <div class="up-add-row">
+        <label class="grow">备注（可选）
+          <input type="text" id="upAddDesc" placeholder="来源说明" maxlength="120">
+        </label>
+      </div>
+      <div class="up-add-actions">
+        <button type="button" id="upBtnAdd" class="up-btn primary">确认添加</button>
+        <button type="button" id="upBtnAddCancel" class="up-btn">取消</button>
+      </div>
+      <p class="up-add-tip">Meting 示例：<code>https://api.xxx.com/meting/</code>（需支持 type=song/url/lrc）</p>
+    </div>
+    <div class="up-list" id="upList"><!-- cards filled by JS --></div>
+    <div class="up-legend">
+      <span><i class="dot ok"></i> 可达</span>
+      <span><i class="dot bad"></i> 失败</span>
+      <span><i class="dot cur"></i> 当前使用</span>
+    </div>
+    <p class="modal-foot" id="upRecommend"></p>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

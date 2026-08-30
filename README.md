@@ -4,7 +4,26 @@
 
 在线演示：https://music.yeuxark.com
 
-> 本仓库只包含播放器本身。**不内置任何第三方音频代理地址**。你需要在 `.env` 或后台「上游」里填自己的 Meting / chksz / ORS 实例。不含官方网易云接口、不含账号 Cookie / Token、不含运行时数据。
+<p align="center">
+  <img src="docs/screenshots/player-search.png" alt="KAZAM 播放器与搜索结果" width="960">
+</p>
+<p align="center"><em>播放器 + 搜索：选中曲目、封面、音质（极高 320k）与下载 / 歌词 / 分享。</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/lyrics.png" alt="歌词" width="470">
+  &nbsp;
+  <img src="docs/screenshots/radio.png" alt="今日电台" width="470">
+</p>
+<p align="center"><em>歌词逐行高亮　·　今日电台（与自选列表分开）</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/playlist.png" alt="我的列表" width="470">
+  &nbsp;
+  <img src="docs/screenshots/player-dark.png" alt="黑夜模式" width="470">
+</p>
+<p align="center"><em>本机播放列表　·　黑夜模式</em></p>
+
+> 本仓库只包含播放器本身。**不内置任何第三方音频代理地址**。你需要在 `.env` 或后台「上游」里填自己的 Meting / chksz / ORS 实例。不含官方网易云接口、不含账号 Cookie / Token、不含运行时数据。截图来自[在线演示](https://music.yeuxark.com)。
 
 ## 功能
 

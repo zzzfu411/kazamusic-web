@@ -44,9 +44,10 @@ def main() -> int:
 
     js = (ROOT / "static/app.js").read_text(encoding="utf-8")
     html = (ROOT / "templates/index.html").read_text(encoding="utf-8")
-    ok("UI btnResolve", "btnResolve" in html and "promptResolve" in js)
+    # parsing a pasted link/ID happens in the search box
+    ok("UI parse", "粘贴网易云链接" in html and "resolveAndPlay" in js)
     ok("UI btnCacheSong", "btnCacheSong" in html and "cacheTrack" in js)
-    ok("UI tabLibrary", "tabLibrary" in html and "loadLibrary" in js)
+    ok("UI library tab", 'data-view="library"' in html and "loadLibrary" in js)
     ok("localStorage", "localStorage" in js and "kazam.vps.v1" in js)
 
     ids = re.findall(r'id="([^"]+)"', html)
@@ -64,8 +65,9 @@ def main() -> int:
     c = k.app.test_client()
     ok("health 200", c.get("/health").status_code == 200)
     home = c.get("/").data
-    ok("index resolve", b"btnResolve" in home)
-    ok("index library", b"tabLibrary" in home)
+    ok("index search", b'id="searchInput"' in home)
+    ok("index library", b'data-view="library"' in home)
+    ok("index versioned assets", b"/static/app.js?v=" in home and b"/static/style.css?v=" in home)
     ok("index cache btn", b"btnCacheSong" in home)
     cfg = c.get("/api/config").get_json()
     ok("feature parse", bool(cfg.get("features", {}).get("parse")))

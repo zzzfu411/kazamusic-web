@@ -1,0 +1,20 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: transparent; }
+body { font: 14px/1.4 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif; color: rgba(255, 255, 255, 0.94); }
+.embed {
+  position: relative; display: flex; align-items: center; gap: 12px; height: 100%; min-height: 72px;
+  padding: 10px 12px; border-radius: 14px; overflow: hidden; background: #15151b; isolation: isolate;
+}
+.art { position: absolute; inset: -20%; z-index: -2; background: center / cover no-repeat; filter: blur(30px) saturate(1.5); opacity: 0.55; }
+.art-shade { position: absolute; inset: 0; z-index: -1; background: linear-gradient(90deg, rgba(12, 12, 16, 0.55), rgba(12, 12, 16, 0.85)); }
+.cover { width: 52px; height: 52px; border-radius: 9px; object-fit: cover; flex: none; box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.7); }
+.meta { flex: 1; min-width: 0; }
+.t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.a { font-size: 12px; color: rgba(255, 255, 255, 0.62); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar { position: relative; height: 3px; margin-top: 8px; border-radius: 3px; background: rgba(255, 255, 255, 0.16); cursor: pointer; }
+.bar i { position: absolute; inset: 0; border-radius: 3px; background: #fff; transform-origin: left; transform: scaleX(0); }
+.play { width: 40px; height: 40px; flex: none; border: 0; border-radius: 50%; display: grid; place-items: center; background: #fff; color: #111; cursor: pointer; }
+.play svg { width: 20px; height: 20px; fill: currentColor; }
+.play svg[hidden] { display: none; }
+.open { position: absolute; top: 6px; right: 10px; font-size: 10px; letter-spacing: 0.1em; color: rgba(255, 255, 255, 0.45); text-decoration: none; }
+.open:hover { color: #fff; }

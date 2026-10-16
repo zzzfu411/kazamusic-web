@@ -11,6 +11,7 @@ import random
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,63 @@ if config.TRUST_PROXY:
 
 # reuse upstream session (timeouts / UA already set)
 SESSION = upstream.SESSION
+# Enough pooled connections for parallel radio searches and concurrent streams.
+_adapter = requests.adapters.HTTPAdapter(pool_connections=32, pool_maxsize=32)
+SESSION.mount("https://", _adapter)
+SESSION.mount("http://", _adapter)
+
+# When nginx maps this prefix to CACHE_DIR as an internal location, cached
+# audio is handed to nginx (X-Accel-Redirect): it serves ranges with sendfile
+# and no gunicorn thread is held for the length of a song.
+CACHE_ACCEL_PREFIX = config.env("KAZAM_CACHE_ACCEL", "").strip()
+
+
+class TTLCache:
+    """A small thread-safe dict with per-entry expiry and a size cap."""
+
+    def __init__(self, maxsize: int = 256):
+        self._data: dict[Any, tuple[float, Any]] = {}
+        self._lock = threading.Lock()
+        self._maxsize = maxsize
+
+    def get(self, key: Any) -> Any:
+        with self._lock:
+            hit = self._data.get(key)
+            if not hit:
+                return None
+            if hit[0] <= time.time():
+                self._data.pop(key, None)
+                return None
+            return hit[1]
+
+    def set(self, key: Any, value: Any, ttl: float) -> None:
+        now = time.time()
+        with self._lock:
+            self._data[key] = (now + ttl, value)
+            if len(self._data) > self._maxsize:
+                for k in [k for k, v in self._data.items() if v[0] <= now]:
+                    self._data.pop(k, None)
+                while len(self._data) > self._maxsize:
+                    self._data.pop(next(iter(self._data)))
+
+
+# Static files: a versioned URL (?v=<content hash>) never changes, so browsers
+# keep it for a year instead of revalidating every file on every visit.
+_asset_versions: dict[str, str] = {}
+
+
+def asset_url(name: str) -> str:
+    v = _asset_versions.get(name)
+    if v is None:
+        try:
+            v = hashlib.md5((Path(app.static_folder) / name).read_bytes()).hexdigest()[:10]
+        except OSError:
+            v = str(int(time.time()))
+        _asset_versions[name] = v
+    return f"/static/{name}?v={v}"
+
+
+app.jinja_env.globals["asset"] = asset_url
 
 MIME_BY_EXT = {
     "flac": "audio/flac",
@@ -76,6 +134,10 @@ def add_cors(resp: Response) -> Response:
     resp.headers["Access-Control-Expose-Headers"] = (
         "Content-Range, Accept-Ranges, Content-Length, X-Kazam-Cache"
     )
+    if request.path.startswith("/static/") and resp.status_code in (200, 304):
+        resp.headers["Cache-Control"] = (
+            "public, max-age=31536000, immutable" if request.args.get("v") else "public, max-age=3600"
+        )
     return resp
 
 
@@ -287,16 +349,17 @@ def api_get(path: str, params: dict | None = None, timeout: float = 12) -> dict:
     return upstream.chksz_get(path, params=params, timeout=timeout)
 
 
+# Hosts that serve the same file over https. Rewriting is free; probing every
+# picture with a HEAD request made a 30-result search take 3–4 seconds.
+_HTTPS_HOSTS = ("126.net", "127.net", "netease.com", "qijieya.cn", "paugram.com")
+
+
 def try_https(url: str) -> str:
     if not url or not url.startswith("http://"):
         return url
-    https = "https://" + url[7:]
-    try:
-        r = SESSION.head(https, timeout=4, allow_redirects=True)
-        if r.status_code < 500:
-            return https
-    except Exception:
-        pass
+    host = (urlparse(url).hostname or "").lower()
+    if any(host == s or host.endswith("." + s) for s in _HTTPS_HOSTS):
+        return "https://" + url[7:]
     return url
 
 
@@ -367,10 +430,24 @@ _META_KEEP_OK = 2 * 60 * 60
 _META_TTL_MISS = 8
 _meta_lock = threading.Lock()
 _meta_cache: dict[tuple[str, str], tuple[float, dict]] = {}
+# One upstream lookup per song at a time: the player asks for the stream and
+# the metadata together, and both must not spend upstream quota.
+_meta_key_locks: dict[tuple[str, str], threading.Lock] = {}
 
 
 def _meta_key(sid: str, level: str | None) -> tuple[str, str]:
     return (str(sid), parse_audio_level(level))
+
+
+def _meta_key_lock(key: tuple[str, str]) -> threading.Lock:
+    with _meta_lock:
+        lock = _meta_key_locks.get(key)
+        if lock is None:
+            if len(_meta_key_locks) > 512:
+                for k in [k for k, v in _meta_key_locks.items() if not v.locked()]:
+                    _meta_key_locks.pop(k, None)
+            lock = _meta_key_locks[key] = threading.Lock()
+        return lock
 
 
 def invalidate_song_meta(sid: str, level: str | None = None) -> None:
@@ -388,23 +465,29 @@ def get_song_meta(
     """Prefer configured upstream; enrich br from duration when possible."""
     lv = parse_audio_level(level)
     key = (str(sid), lv)
-    now = time.time()
-    if not force:
+
+    def cached() -> dict | None:
         with _meta_lock:
             hit = _meta_cache.get(key)
-        if hit and hit[0] > now:
-            raw = dict(hit[1]) if hit[1] else {}
-            if raw and duration_ms:
-                raw = upstream.enrich_meta_duration(raw, duration_ms)
-            return raw
-    raw = upstream.get_song_meta(sid, level=lv) or {}
-    ttl = _META_KEEP_OK if raw.get("url") else _META_TTL_MISS
-    with _meta_lock:
-        _meta_cache[key] = (now + ttl, dict(raw))
-        if len(_meta_cache) > 256:
-            dead = [k for k, v in _meta_cache.items() if v[0] <= now]
-            for k in dead:
-                _meta_cache.pop(k, None)
+        if hit and hit[0] > time.time():
+            return dict(hit[1]) if hit[1] else {}
+        return None
+
+    raw = None if force else cached()
+    if raw is None:
+        with _meta_key_lock(key):
+            # whoever waited on the lock finds the result the first caller stored
+            raw = None if force else cached()
+            if raw is None:
+                raw = upstream.get_song_meta(sid, level=lv) or {}
+                now = time.time()
+                ttl = _META_KEEP_OK if raw.get("url") else _META_TTL_MISS
+                with _meta_lock:
+                    _meta_cache[key] = (now + ttl, dict(raw))
+                    if len(_meta_cache) > 256:
+                        dead = [k for k, v in _meta_cache.items() if v[0] <= now]
+                        for k in dead:
+                            _meta_cache.pop(k, None)
     if raw and duration_ms:
         raw = upstream.enrich_meta_duration(raw, duration_ms)
     return raw
@@ -421,35 +504,77 @@ def get_audio_url(sid: str, level: str | None = None, *, force: bool = False) ->
         return ""
 
 
-def _cdn_reachable(audio_url: str) -> bool:
-    if not audio_url:
-        return False
-    try:
-        r = SESSION.get(
-            audio_url,
-            headers={"Range": "bytes=0-0", "Accept": "*/*"},
-            timeout=8,
-            stream=True,
-            allow_redirects=True,
-        )
-        code = r.status_code
+def open_upstream_audio(
+    sid: str, level: str | None, range_header: str | None = None
+) -> requests.Response | None:
+    """
+    One GET to the CDN carrying the client's Range, so the first bytes come back
+    after a single round trip (it used to probe, then HEAD, then GET). A cached
+    link that has died is resolved again once.
+    """
+    headers = {"Accept": "*/*"}
+    if range_header:
+        headers["Range"] = range_header
+    for attempt in (0, 1):
+        url = get_audio_url(sid, level=level, force=attempt == 1)
+        if not url:
+            return None
+        resp = None
         try:
-            r.close()
-        except Exception:
-            pass
-        return code < 400 or code == 206
-    except Exception:
-        return False
-
-
-def resolve_stream_url(sid: str, level: str | None, *, probe: bool = False) -> str:
-    """Reuse cached CDN link; only hit upstream if missing or the link is dead."""
-    url = get_audio_url(sid, level=level)
-    if url and (not probe or _cdn_reachable(url)):
-        return url
-    if url:
+            resp = SESSION.get(url, headers=headers, stream=True, timeout=(6, 30), allow_redirects=True)
+        except requests.RequestException as e:
+            log.warning("upstream audio %s failed: %s", sid, e)
+        if resp is not None and resp.status_code < 400:
+            return resp
+        if resp is not None:
+            resp.close()
         invalidate_song_meta(sid, level)
-    return get_audio_url(sid, level=level, force=True)
+    return None
+
+
+def _audio_type(resp: requests.Response) -> tuple[str, str]:
+    """(content type, file extension) for an upstream audio response."""
+    path = urlparse(resp.url or "").path
+    ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+    ct = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+    if ext not in MIME_BY_EXT:
+        ext = next((e for e, m in MIME_BY_EXT.items() if m == ct), "") or ("flac" if "flac" in ct else "mp3")
+    if not ct.startswith("audio/"):
+        ct = MIME_BY_EXT.get(ext, "audio/mpeg")
+    return ct, ext
+
+
+def relay_upstream_audio(resp: requests.Response, headers: dict[str, str]) -> Response:
+    """Pass an upstream audio response through: its status, length and range."""
+    ct, _ext = _audio_type(resp)
+    out = {"Accept-Ranges": "bytes", **headers}
+    for name in ("Content-Length", "Content-Range"):
+        if resp.headers.get(name):
+            out[name] = resp.headers[name]
+
+    def body():
+        try:
+            for chunk in resp.iter_content(64 * 1024):
+                if chunk:
+                    yield chunk
+        except Exception as e:
+            log.warning("stream relay error: %s", e)
+        finally:
+            resp.close()
+
+    return Response(body(), status=resp.status_code, mimetype=ct, headers=out, direct_passthrough=True)
+
+
+def local_audio_response(path: Path, headers: dict[str, str]) -> Response:
+    """A cached audio file: handed to nginx when it is configured, else streamed here."""
+    ext = path.name.rsplit(".", 1)[-1].lower() if "." in path.name else "mp3"
+    ct = MIME_BY_EXT.get(ext, "audio/mpeg")
+    if CACHE_ACCEL_PREFIX:
+        resp = Response(status=200, mimetype=ct, headers=headers)
+        resp.headers["X-Accel-Redirect"] = CACHE_ACCEL_PREFIX + quote(path.name)
+        return resp
+    gen, ct, status, file_headers = stream_local_file(path, request.headers.get("Range"))
+    return Response(gen, status=status, mimetype=ct, headers={**file_headers, **headers})
 
 
 def cover_host_ok(url: str) -> bool:
@@ -464,37 +589,6 @@ def cover_host_ok(url: str) -> bool:
     if any(x in host for x in extra):
         return True
     return any(host == s or host.endswith("." + s) for s in config.COVER_HOST_SUFFIXES)
-
-
-def stream_audio(audio_url: str, range_header: str | None = None):
-    parsed = urlparse(audio_url)
-    ext = parsed.path.rsplit(".", 1)[-1] if "." in parsed.path else "mp3"
-    content_type = MIME_BY_EXT.get(ext.lower(), "audio/mpeg")
-
-    total_size = 0
-    try:
-        head = SESSION.head(audio_url, timeout=10, allow_redirects=True)
-        total_size = int(head.headers.get("content-length", 0) or 0)
-    except Exception:
-        pass
-
-    req_headers: dict[str, str] = {"Accept": "*/*"}
-    if range_header:
-        req_headers["Range"] = range_header
-
-    def generate():
-        try:
-            with SESSION.get(
-                audio_url, headers=req_headers, stream=True, timeout=60
-            ) as resp:
-                resp.raise_for_status()
-                for chunk in resp.iter_content(256 * 1024):
-                    if chunk:
-                        yield chunk
-        except Exception as e:
-            log.warning("stream error: %s", e)
-
-    return generate(), content_type, ext, total_size
 
 
 def make_download_headers(filename: str, fallback: str = "download") -> dict:
@@ -812,11 +906,14 @@ def health():
 def favicon():
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
-        '<rect width="100" height="100" rx="20" fill="#facc15"/>'
-        '<text x="50" y="65" text-anchor="middle" font-size="50" '
-        'font-weight="bold" fill="#1a1a2e">♪</text></svg>'
+        '<rect width="100" height="100" rx="24" fill="#15151b"/>'
+        '<path d="M40 70V31l30-6v36" fill="none" stroke="#fff" stroke-width="7" '
+        'stroke-linecap="round" stroke-linejoin="round"/>'
+        '<circle cx="32" cy="70" r="9" fill="#fff"/><circle cx="62" cy="61" r="9" fill="#f2c94c"/></svg>'
     )
-    return Response(svg, mimetype="image/svg+xml")
+    resp = Response(svg, mimetype="image/svg+xml")
+    resp.headers["Cache-Control"] = "public, max-age=604800"
+    return resp
 
 
 # ── API ───────────────────────────────────────────────────────────
@@ -873,6 +970,32 @@ def parse_endpoint():
     return jsonify({"ok": True, "data": payload})
 
 
+# Search results change slowly; repeating a search (or the radio drawing the
+# same keyword) answers from memory and spends no upstream quota.
+_search_cache = TTLCache(maxsize=256)
+_SEARCH_TTL = 10 * 60
+_SEARCH_TTL_EMPTY = 30
+
+
+def cached_search(keyword: str, limit: int = 30) -> list[dict]:
+    key = (upstream._provider(), keyword.strip().lower(), limit)
+    hit = _search_cache.get(key)
+    if hit is not None:
+        return hit
+    songs = []
+    for s in upstream.search_songs(keyword, limit=limit):
+        if not s.get("id"):
+            continue
+        n = normalize_song(s)
+        if isinstance(s.get("artist"), str) and s["artist"]:
+            n["artist"] = s["artist"]
+        if s.get("picUrl") and not n.get("cover"):
+            n["cover"] = try_https(s["picUrl"])
+        songs.append(n)
+    _search_cache.set(key, songs, _SEARCH_TTL if songs else _SEARCH_TTL_EMPTY)
+    return songs
+
+
 @app.route("/api/search")
 def search():
     kw = request.args.get("q", "").strip()
@@ -885,17 +1008,8 @@ def search():
         if raw:
             return jsonify({"ok": True, "data": [build_song_payload(sid, raw)]})
     try:
-        raw_songs = upstream.search_songs(kw, limit=30)
-        songs = []
-        for s in raw_songs:
-            if not s.get("id"):
-                continue
-            n = normalize_song(s)
-            if isinstance(s.get("artist"), str) and s["artist"]:
-                n["artist"] = s["artist"]
-            if s.get("picUrl") and not n.get("cover"):
-                n["cover"] = try_https(s["picUrl"])
-            songs.append(n)
+        # cached flags can change between searches; refresh them on the way out
+        songs = [dict(s, cached=is_cached(str(s["id"]))) for s in cached_search(kw, limit=30)]
         return jsonify({"ok": True, "data": songs})
     except Exception as e:
         log.exception("search failed")
@@ -959,11 +1073,13 @@ def _today_cn() -> str:
 
 def _search_songs_for_radio(keyword: str, limit: int = 20) -> list[dict]:
     try:
-        raw = upstream.search_songs(keyword, limit=limit)
-        return [normalize_song(s) for s in raw if s.get("id")]
+        return [dict(s) for s in cached_search(keyword, limit=limit)]
     except Exception as e:
         log.warning("radio search %s failed: %s", keyword, e)
         return []
+
+
+_radio_pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="radio")
 
 
 def build_today_radio(
@@ -997,15 +1113,17 @@ def build_today_radio(
     except Exception:
         pass
 
-    for kw in chosen:
-        batch = _search_songs_for_radio(kw, limit=20)
-        rng.shuffle(batch)
-        for s in batch:
-            sid = str(s.get("id") or "")
-            if not sid or sid in seen:
-                continue
-            seen.add(sid)
-            pool.append(s)
+    # keywords are searched six at a time (they used to run one after another);
+    # a second batch only runs when the first did not fill the pool
+    for start in range(0, len(chosen), 6):
+        for batch in _radio_pool.map(lambda kw: _search_songs_for_radio(kw, limit=20), chosen[start:start + 6]):
+            rng.shuffle(batch)
+            for s in batch:
+                sid = str(s.get("id") or "")
+                if not sid or sid in seen:
+                    continue
+                seen.add(sid)
+                pool.append(s)
         if len(pool) >= limit * 4:
             break
 
@@ -1128,8 +1246,11 @@ def lyric(sid: str):
                 },
             }
         )
-    d = upstream.get_lyric(sid)
-    return jsonify(
+    d = _lyric_cache.get(str(sid))
+    if d is None:
+        d = upstream.get_lyric(sid) or {}
+        _lyric_cache.set(str(sid), d, 6 * 3600 if (d.get("lrc") or d.get("tlyric")) else 60)
+    resp = jsonify(
         {
             "ok": True,
             "data": {
@@ -1141,6 +1262,11 @@ def lyric(sid: str):
             },
         }
     )
+    resp.headers["Cache-Control"] = "public, max-age=3600"
+    return resp
+
+
+_lyric_cache = TTLCache(maxsize=512)
 
 
 @app.route("/api/playlist/<pid>")
@@ -1162,20 +1288,78 @@ def playlist(pid: str):
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+# Proxied covers are kept on disk (beside, not inside, the song cache's names)
+# and NetEase pictures are asked for at the size the page shows: originals are
+# often 1–3 MB, a 200px copy a few KB.
+COVER_SIZES = (64, 128, 200, 300, 400, 600, 800, 1024)
+_COVER_DIR = config.CACHE_DIR / "_covers"
+_COVER_MAX_FILES = 4000
+_cover_writes = 0
+
+
+def _netease_host(url: str) -> bool:
+    host = (urlparse(url).hostname or "").lower()
+    return host == "music.126.net" or host.endswith(".music.126.net")
+
+
+def _sized_cover_url(url: str, size: int) -> str:
+    if not size or not _netease_host(url):
+        return url
+    base = re.sub(r"[?&]param=\d+y\d+", "", url)
+    return f"{base}{'&' if '?' in base else '?'}param={size}y{size}"
+
+
+def _image_mimetype(head: bytes) -> str | None:
+    if head.startswith(b"\xff\xd8"):
+        return "image/jpeg"
+    if head.startswith(b"\x89PNG"):
+        return "image/png"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    if head.startswith(b"GIF8"):
+        return "image/gif"
+    return None
+
+
+def _prune_cover_dir() -> None:
+    files = sorted(_COVER_DIR.glob("*.img"), key=lambda p: p.stat().st_mtime)
+    for p in files[: max(0, len(files) - int(_COVER_MAX_FILES * 0.8))]:
+        p.unlink(missing_ok=True)
+
+
 @app.route("/api/cover-proxy")
 def cover_proxy():
+    global _cover_writes
     url = request.args.get("url", "").strip()
     if not url or not url.startswith(("http://", "https://")):
         return "", 400
     if not cover_host_ok(url):
         return jsonify({"ok": False, "error": "host not allowed"}), 403
     try:
-        r = SESSION.get(url, timeout=12)
-        if r.status_code != 200:
+        want = int(request.args.get("size") or 0)
+    except ValueError:
+        want = 0
+    size = next((s for s in COVER_SIZES if s >= want), COVER_SIZES[-1]) if want > 0 else 0
+    fetch_url = _sized_cover_url(try_https(url), size)
+    path = _COVER_DIR / (hashlib.sha1(fetch_url.encode("utf-8")).hexdigest() + ".img")
+    if path.exists():
+        with open(path, "rb") as f:
+            mimetype = _image_mimetype(f.read(16)) or "image/jpeg"
+        return send_file(path, mimetype=mimetype, max_age=7 * 86400, conditional=True)
+    try:
+        r = SESSION.get(fetch_url, timeout=(5, 12))
+        mimetype = _image_mimetype(r.content[:16]) if r.status_code == 200 else None
+        if not mimetype or len(r.content) > 8 * 1024 * 1024:
             return "", 404
-        ct = r.headers.get("content-type", "image/jpeg")
-        resp = Response(r.content, mimetype=ct)
-        resp.headers["Cache-Control"] = "public, max-age=86400"
+        _COVER_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.{threading.get_ident()}.part")
+        tmp.write_bytes(r.content)
+        tmp.replace(path)
+        _cover_writes += 1
+        if _cover_writes % 200 == 0:
+            _prune_cover_dir()
+        resp = Response(r.content, mimetype=mimetype)
+        resp.headers["Cache-Control"] = f"public, max-age={7 * 86400}"
         return resp
     except Exception:
         return "", 404
@@ -1185,51 +1369,26 @@ def cover_proxy():
 def stream(sid: str):
     """Prefer local cache for low/mid quality; high quality always live."""
     level = parse_audio_level(request.args.get("level"))
-    range_header = request.headers.get("Range")
     # Local cache is typically 320k — skip it when user wants FLAC / 母带
-    use_cache = level not in HIGH_AUDIO_LEVELS
-    if use_cache:
+    if level not in HIGH_AUDIO_LEVELS:
         local = find_cached_audio(sid)
         if local:
-            gen, ct, status, headers = stream_local_file(local, range_header)
-            headers = dict(headers or {})
-            headers["X-Kazam-Level"] = level
-            headers["X-Kazam-Cache"] = "hit"
-            return Response(gen, status=status, mimetype=ct, headers=headers)
+            return local_audio_response(local, {
+                "Cache-Control": "public, max-age=3600",
+                "Content-Disposition": "inline",
+                "X-Kazam-Cache": "hit",
+                "X-Kazam-Level": level,
+            })
 
-    # Re-check CDN only when the client starts from byte 0 (play / loop restart).
-    # Mid-file Range must keep the same URL or the player will abort.
-    start_at_zero = True
-    if range_header:
-        m0 = re.match(r"bytes=(\d+)-", range_header)
-        start_at_zero = bool(m0 and int(m0.group(1)) == 0)
-    audio_url = resolve_stream_url(sid, level, probe=start_at_zero)
-    if not audio_url:
+    resp = open_upstream_audio(sid, level, request.headers.get("Range"))
+    if resp is None:
         return jsonify({"ok": False, "error": "no url", "level": level}), 404
-
-    gen, ct, _ext, total_size = stream_audio(audio_url, range_header)
-    headers = {
-        "Accept-Ranges": "bytes",
+    return relay_upstream_audio(resp, {
         "Cache-Control": "no-cache",
         "Content-Disposition": "inline",
         "X-Kazam-Cache": "miss",
         "X-Kazam-Level": level,
-    }
-
-    if range_header and total_size > 0:
-        m = re.match(r"bytes=(\d+)-(\d*)", range_header)
-        if m:
-            start = int(m.group(1))
-            end = int(m.group(2)) if m.group(2) else total_size - 1
-            end = min(end, total_size - 1)
-            headers["Content-Range"] = f"bytes {start}-{end}/{total_size}"
-            headers["Content-Length"] = str(end - start + 1)
-            gen, ct, _, _ = stream_audio(audio_url, f"bytes={start}-{end}")
-            return Response(gen, status=206, mimetype=ct, headers=headers)
-
-    if total_size > 0:
-        headers["Content-Length"] = str(total_size)
-    return Response(gen, status=200, mimetype=ct, headers=headers)
+    })
 
 
 @app.route("/api/download/<sid>")
@@ -1251,13 +1410,10 @@ def download(sid: str):
         artist = meta.get("artist", "")
         title = f"{artist} - {name}" if artist else name
         ext = local.name.rsplit(".", 1)[-1]
-        ct = MIME_BY_EXT.get(ext, "audio/mpeg")
         hdrs = make_download_headers(f"{title}.{ext}", fallback=f"{name}.{ext}")
-        hdrs["Content-Type"] = ct
-        hdrs["Content-Length"] = str(local.stat().st_size)
         hdrs["X-Kazam-Level"] = level
         hdrs["X-Kazam-Cache"] = cache_tag
-        return Response(local.read_bytes(), status=200, headers=hdrs)
+        return local_audio_response(local, hdrs)
 
     if force_cache:
         local = find_cached_audio(sid)
@@ -1265,8 +1421,8 @@ def download(sid: str):
             return _serve_local(local, load_cache_meta(sid) or {}, "hit-forced")
 
     raw = get_song_meta(sid, level=level) or {}
-    audio_url = raw.get("url", "")
-    if not audio_url:
+    resp = open_upstream_audio(sid, level) if raw.get("url") else None
+    if resp is None:
         local = find_cached_audio(sid)
         if local:
             return _serve_local(local, load_cache_meta(sid) or raw, "hit-fallback")
@@ -1275,31 +1431,16 @@ def download(sid: str):
     name = raw.get("name", sid)
     artist = raw.get("artist", "")
     title = f"{artist} - {name}" if artist else name
-    ext = (
-        urlparse(audio_url).path.rsplit(".", 1)[-1].lower()
-        if "." in urlparse(audio_url).path
-        else ""
-    )
-    if ext not in MIME_BY_EXT:
-        br = int(raw.get("br") or 0)
-        typ = str(raw.get("type") or "").lower()
-        if typ in MIME_BY_EXT:
-            ext = typ
-        elif level in HIGH_AUDIO_LEVELS or br >= 900000:
-            ext = "flac"
-        else:
-            ext = "mp3"
-    filename = f"{title}.{ext}"
-    gen, ct, _, total_size = stream_audio(audio_url)
-    hdrs = make_download_headers(filename, fallback=f"{name}.{ext}")
-    hdrs["Content-Type"] = ct
+    _ct, ext = _audio_type(resp)
+    typ = str(raw.get("type") or "").lower()
+    if typ in MIME_BY_EXT:
+        ext = typ
+    hdrs = make_download_headers(f"{title}.{ext}", fallback=f"{name}.{ext}")
     hdrs["X-Kazam-Level"] = level
     hdrs["X-Kazam-Cache"] = "miss"
     if raw.get("br"):
         hdrs["X-Kazam-Br"] = str(raw.get("br"))
-    if total_size > 0:
-        hdrs["Content-Length"] = str(total_size)
-    return Response(gen, status=200, headers=hdrs)
+    return relay_upstream_audio(resp, hdrs)
 
 
 @app.route("/api/download-lyric/<sid>")

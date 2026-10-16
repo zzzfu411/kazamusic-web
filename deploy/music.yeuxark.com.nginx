@@ -1,6 +1,14 @@
 server {
     server_name music.yeuxark.com;
 
+    # JSON, scripts and styles go out compressed (audio and images are left alone)
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 5;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/javascript application/javascript application/json image/svg+xml;
+
     location ^~ /.well-known/acme-challenge/ {
         root /var/www/html;
         default_type text/plain;

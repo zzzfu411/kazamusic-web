@@ -10,7 +10,7 @@ WorkingDirectory=/home/yeux/kazam/vps_version
 Environment=PATH=/home/yeux/kazam/vps_version/.venv/bin:/usr/bin
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=/home/yeux/kazam/vps_version/.env
-ExecStart=/home/yeux/kazam/vps_version/.venv/bin/gunicorn -b 127.0.0.1:8080 -w 1 -k gthread --threads 4 --timeout 120 --access-logfile - --error-logfile - app:app
+ExecStart=/home/yeux/kazam/vps_version/.venv/bin/gunicorn -b 127.0.0.1:8080 -w 1 -k gthread --threads 16 --timeout 120 --access-logfile - --error-logfile - app:app
 Restart=always
 RestartSec=3
 

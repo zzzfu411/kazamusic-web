@@ -1,195 +1,244 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1">
-<meta name="theme-color" content="#facc15" id="metaThemeColor">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#111114" id="metaThemeColor">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>KAZAM · music.yeuxark.com</title>
-<link rel="icon" href="/favicon.ico">
-<link rel="stylesheet" href="/static/style.css?v=20260823osc5">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="description" content="KAZAM — 搜歌、听歌、看歌词的小工具">
+<title>KAZAM · 听歌</title>
+<link rel="icon" href="/favicon.ico" type="image/svg+xml">
+<link rel="dns-prefetch" href="https://p1.music.126.net">
+<link rel="dns-prefetch" href="https://p2.music.126.net">
+<link rel="dns-prefetch" href="https://p3.music.126.net">
+<link rel="dns-prefetch" href="https://p4.music.126.net">
+<link rel="stylesheet" href="{{ asset('style.css') }}">
 <script>window.KAZAM_PUBLIC_BASE = {{ public_base|tojson }};</script>
-<!-- 防闪白：尽早应用主题 -->
-<script>
-(function () {
-  try {
-    var t = localStorage.getItem("kazam.theme");
-    if (t !== "light" && t !== "dark") {
-      t = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark" : "light";
-    }
-    document.documentElement.setAttribute("data-theme", t);
-    var m = document.getElementById("metaThemeColor");
-    if (m) m.setAttribute("content", t === "dark" ? "#030304" : "#facc15");
-  } catch (e) {}
-})();
-</script>
 </head>
 <body>
-<div class="topbar">
-  <div class="topbar-row1">
-    <a href="/" class="logo" id="logoBtn" title="KAZAM">KAZAM!</a>
-    <div class="search-wrap">
-      <input id="searchInput" placeholder="搜歌..." autofocus>
-      <button type="button" id="searchBtn" title="搜索">→</button>
-    </div>
-    <button type="button" class="theme-toggle" id="btnTheme" title="切换浅色 / 黑夜" aria-label="切换主题">
-      <span class="icon-moon" aria-hidden="true">☾</span>
-      <span class="icon-sun" aria-hidden="true">☀</span>
-    </button>
-  </div>
-  <div class="top-nav">
-    <div class="top-tabs" role="tablist">
-      <button type="button" id="tabSearch" class="active">🔍 搜索</button>
-      <button type="button" id="tabPlaylist">📋 列表</button>
-      <button type="button" id="tabRadio">📻 电台</button>
-      <button type="button" id="tabLibrary" class="admin-only">💾 曲库</button>
-      <button type="button" id="tabLyrics">🎤 歌词</button>
-    </div>
-    <div class="top-actions">
-      <button type="button" id="btnRadio" title="生成/刷新今日电台（不覆盖自选列表）">📻 今日电台</button>
-      <button type="button" id="btnResolve" title="粘贴 ID/链接">✨ 解析</button>
-      <button type="button" id="btnLoadPl" title="导入网易云歌单到「我的列表」">📂 歌单</button>
-      <button type="button" id="btnUpstream" class="admin-only" title="选择上游 API">上游</button>
-      <span class="quota-chip admin-only" id="chkszQuota" title="ChKSz 今日额度（点刷新）">今日已用 -- / 剩余 --</span>
-      <button type="button" id="btnAdminExit" class="admin-only" title="退出管理员">退出</button>
-    </div>
-  </div>
+<svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path class="solid" d="M8 5.6v12.8a1 1 0 0 0 1.53.85l10.1-6.4a1 1 0 0 0 0-1.7L9.53 4.75A1 1 0 0 0 8 5.6z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect class="solid" x="6.5" y="5" width="4" height="14" rx="1.2"/><rect class="solid" x="13.5" y="5" width="4" height="14" rx="1.2"/></symbol>
+    <symbol id="i-prev" viewBox="0 0 24 24"><path class="solid" d="M5.5 5.5a1 1 0 0 1 2 0v13a1 1 0 0 1-2 0zM19 6.3v11.4a1 1 0 0 1-1.55.84l-8.3-5.5a1.25 1.25 0 0 1 0-2.08l8.3-5.5A1 1 0 0 1 19 6.3z"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path class="solid" d="M18.5 5.5a1 1 0 0 0-2 0v13a1 1 0 0 0 2 0zM5 6.3v11.4a1 1 0 0 0 1.55.84l8.3-5.5a1.25 1.25 0 0 0 0-2.08l-8.3-5.5A1 1 0 0 0 5 6.3z"/></symbol>
+    <symbol id="i-repeat" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></symbol>
+    <symbol id="i-repeat-one" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/><path d="M11 10h1.2v4.2"/></symbol>
+    <symbol id="i-shuffle" viewBox="0 0 24 24"><path d="M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l6.1-8.6c.7-1.1 2-1.7 3.3-1.7H22"/><path d="m18 2 4 4-4 4"/><path d="M2 6h1.9c1.5 0 2.9.9 3.6 2.2"/><path d="M22 18h-5.9c-1.3 0-2.6-.7-3.3-1.8l-.5-.8"/><path d="m18 14 4 4-4 4"/></symbol>
+    <symbol id="i-volume" viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/></symbol>
+    <symbol id="i-mute" viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="m22 9-6 6"/><path d="m16 9 6 6"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V3"/><path d="m17 8-5-5-5 5"/><path d="M5 21h14"/></symbol>
+    <symbol id="i-lyrics" viewBox="0 0 24 24"><path d="M17 6H3"/><path d="M21 12H8"/><path d="M21 18H8"/><path d="M3 12v6"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="m16 6-4-4-4 4"/><path d="M12 2v13"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></symbol>
+    <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M12 13v8"/><path d="m8 17 4 4 4-4"/><path d="M20.9 18.1A5 5 0 0 0 18 9h-1.3A8 8 0 1 0 3 16.3"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle class="solid" cx="5" cy="12" r="1.7"/><circle class="solid" cx="12" cy="12" r="1.7"/><circle class="solid" cx="19" cy="12" r="1.7"/></symbol>
+    <symbol id="i-grip" viewBox="0 0 24 24"><circle class="solid" cx="9" cy="6" r="1.4"/><circle class="solid" cx="15" cy="6" r="1.4"/><circle class="solid" cx="9" cy="12" r="1.4"/><circle class="solid" cx="15" cy="12" r="1.4"/><circle class="solid" cx="9" cy="18" r="1.4"/><circle class="solid" cx="15" cy="18" r="1.4"/></symbol>
+    <symbol id="i-radio" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M4.9 19.1a10 10 0 0 1 0-14.2"/><path d="M7.8 16.2a6 6 0 0 1 0-8.4"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4"/><path d="M19.1 4.9a10 10 0 0 1 0 14.2"/></symbol>
+    <symbol id="i-list-plus" viewBox="0 0 24 24"><path d="M11 12H3"/><path d="M16 6H3"/><path d="M16 18H3"/><path d="M18 9v6"/><path d="M21 12h-6"/></symbol>
+    <symbol id="i-note" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01"/><path d="M7 17.5h.01"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-15.7-6L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 15.7 6L21 16"/><path d="M16 16h5v5"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></symbol>
+    <symbol id="i-play-next" viewBox="0 0 24 24"><path d="m15 10 5 5-5 5"/><path d="M4 4v7a4 4 0 0 0 4 4h12"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></symbol>
+    <symbol id="i-library" viewBox="0 0 24 24"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></symbol>
+  </defs>
+</svg>
+
+<div class="backdrop" aria-hidden="true">
+  <div class="backdrop-art" id="artA"></div>
+  <div class="backdrop-art" id="artB"></div>
+  <div class="backdrop-veil"></div>
 </div>
 
-<div class="main">
-  <div class="left-player" id="leftPlayer">
-    <div class="np-cover-wrap" id="npCoverWrap">
-      <div class="placeholder">♪</div>
-      <img id="npCover" alt="">
-    </div>
-    <div class="np-title" id="npTitle">KAZAM!</div>
-    <div class="np-artist" id="npArtist">等待播放</div>
-    <div class="np-level-row" title="播放与下载共用此音质（chksz 支持臻品母带）">
-      <label class="np-level-label" for="audioLevel">音质</label>
-      <select id="audioLevel" class="np-level-select" aria-label="选择音质">
-        <option value="standard">标准</option>
-        <option value="higher">较高</option>
-        <option value="exhigh" selected>极高 320k</option>
-        <option value="lossless">无损 FLAC</option>
-        <option value="hires">Hi-Res</option>
-        <option value="jymaster">💎 臻品母带</option>
-      </select>
-    </div>
-    <div class="np-quality" id="npQuality"></div>
-    <div class="np-cache-badge admin-only" id="npCacheBadge" style="display:none;">💾 已缓存</div>
-    <div class="np-actions">
-      <button type="button" id="btnDlSong">⬇ 下载</button>
-      <button type="button" id="btnDlLyric">📜 歌词</button>
-      <button type="button" id="btnShare">🔗 分享</button>
-      <button type="button" id="btnCopyUrl" class="admin-only" title="复制稳定 stream 地址">📋 地址</button>
-      <button type="button" id="btnCacheSong" class="admin-only" title="缓存到服务器">💾 缓存到服务器</button>
-    </div>
-    <div class="progress-wrap">
-      <span id="timeCur">0:00</span>
-      <div class="prog-track" id="progTrack"><div class="prog-fill" id="progFill"></div></div>
-      <span id="timeTot">0:00</span>
-    </div>
-    <div class="np-controls">
-      <button type="button" id="btnMode" title="列表循环" aria-label="播放模式">🔁</button>
-      <button type="button" id="btnPrev" aria-label="上一首">⏮</button>
-      <button type="button" class="play-btn" id="btnPlay" aria-label="播放">▶</button>
-      <button type="button" id="btnNext" aria-label="下一首">⏭</button>
-    </div>
-    <div class="vol-row">
-      <button type="button" id="btnVolDown" class="vol-step" title="减小音量" aria-label="减小音量">−</button>
-      <button type="button" id="btnVol" title="静音" aria-label="静音">🔊</button>
-      <input type="range" id="volSlider" min="0" max="100" value="70" step="1" aria-label="音量">
-      <button type="button" id="btnVolUp" class="vol-step" title="增大音量" aria-label="增大音量">+</button>
-      <span class="vol-pct" id="volPct">70%</span>
-    </div>
-    <div class="vol-ios-tip" id="volIosTip" hidden>iOS 需用手机侧边音量键调节</div>
-  </div>
+<header class="topbar">
+  <a class="brand" href="/" id="logoBtn" aria-label="KAZAM">KAZAM</a>
+  <form class="search" id="searchForm" role="search" autocomplete="off">
+    <svg class="icon"><use href="#i-search"/></svg>
+    <input id="searchInput" type="search" enterkeyhint="search" spellcheck="false"
+           placeholder="搜歌、歌手，或粘贴网易云链接 / ID" aria-label="搜索">
+    <kbd class="search-key" aria-hidden="true">/</kbd>
+  </form>
+  <nav class="top-actions">
+    <button type="button" class="pill" id="btnRadio"><svg class="icon"><use href="#i-radio"/></svg><span>今日电台</span></button>
+    <button type="button" class="pill" id="btnLoadPl"><svg class="icon"><use href="#i-list-plus"/></svg><span>导入歌单</span></button>
+    <button type="button" class="quota admin-only" id="chkszQuota" title="ChKSz 今日额度（点击刷新）">额度 --</button>
+    <button type="button" class="icon-btn admin-only" id="btnUpstream" title="上游管理" aria-label="上游管理"><svg class="icon"><use href="#i-server"/></svg></button>
+    <button type="button" class="icon-btn admin-only" id="btnAdminExit" title="退出管理员" aria-label="退出管理员"><svg class="icon"><use href="#i-logout"/></svg></button>
+  </nav>
+</header>
 
-  <div class="right-panel" id="rightPanel">
-    <div class="rp-header">
-      <span id="rpTitle">搜 索 结 果</span>
-      <span id="rpCount">—</span>
-      <div class="tools" id="rpTools">
-        <button type="button" id="btnClearPl" style="display:none">清空自选</button>
-        <div class="export-wrap" id="exportWrap" style="display:none">
-          <button type="button" id="btnExportPl" aria-haspopup="true" aria-expanded="false">导出</button>
-          <div class="export-menu" id="exportMenu" hidden role="menu">
-            <button type="button" data-export="json" role="menuitem">JSON</button>
-            <button type="button" data-export="m3u" role="menuitem">M3U</button>
-            <button type="button" data-export="txt" role="menuitem">文本</button>
+<main class="app">
+  <section class="stage" id="stage" aria-label="正在播放">
+    <div class="sheet-bar">
+      <button type="button" class="icon-btn" id="btnSheetClose" aria-label="收起"><svg class="icon"><use href="#i-chevron-down"/></svg></button>
+      <span class="sheet-label">正在播放</span>
+      <button type="button" class="icon-btn" id="btnSheetLyrics" aria-label="歌词" aria-pressed="false"><svg class="icon"><use href="#i-lyrics"/></svg></button>
+    </div>
+    <div class="stage-visual">
+      <div class="cover" id="cover">
+        <img id="coverImg" alt="" width="600" height="600" decoding="async" referrerpolicy="no-referrer">
+        <svg class="cover-ph icon"><use href="#i-note"/></svg>
+      </div>
+      <div class="stage-lyrics" id="stageLyrics" hidden></div>
+    </div>
+    <div class="np">
+      <div class="np-text">
+        <h1 class="np-title" id="npTitle">KAZAM</h1>
+        <p class="np-artist" id="npArtist">搜一首歌开始吧</p>
+      </div>
+      <div class="np-tags">
+        <span class="tag" id="npQuality" hidden></span>
+        <span class="tag admin-only" id="npCached" hidden>已缓存</span>
+      </div>
+    </div>
+    <div class="progress">
+      <div class="bar" id="progTrack" role="slider" tabindex="0" aria-label="播放进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="bar-buf" id="progBuf"></div>
+        <div class="bar-fill" id="progFill"></div>
+      </div>
+      <div class="times"><span id="timeCur">0:00</span><span id="timeTot">0:00</span></div>
+    </div>
+    <div class="controls">
+      <button type="button" class="icon-btn" id="btnMode" aria-label="播放方式：列表循环" title="列表循环"><svg class="icon"><use href="#i-repeat"/></svg></button>
+      <button type="button" class="icon-btn big" id="btnPrev" aria-label="上一首"><svg class="icon"><use href="#i-prev"/></svg></button>
+      <button type="button" class="play" id="btnPlay" aria-label="播放"><svg class="icon"><use href="#i-play"/></svg></button>
+      <button type="button" class="icon-btn big" id="btnNext" aria-label="下一首"><svg class="icon"><use href="#i-next"/></svg></button>
+      <button type="button" class="icon-btn" id="btnLyrics" aria-label="歌词" title="歌词"><svg class="icon"><use href="#i-lyrics"/></svg></button>
+    </div>
+    <div class="stage-row">
+      <div class="volume" id="volume">
+        <button type="button" class="icon-btn small" id="btnVol" aria-label="静音"><svg class="icon"><use href="#i-volume"/></svg></button>
+        <input type="range" id="volSlider" min="0" max="100" value="70" step="1" aria-label="音量">
+      </div>
+      <label class="level">
+        <span class="sr-only">音质</span>
+        <select id="audioLevel" aria-label="音质">
+          <option value="standard">标准</option>
+          <option value="higher">较高</option>
+          <option value="exhigh" selected>极高 320k</option>
+          <option value="lossless">无损 FLAC</option>
+          <option value="hires">Hi-Res</option>
+          <option value="jymaster">臻品母带</option>
+        </select>
+      </label>
+    </div>
+    <div class="np-actions" id="npActions" hidden>
+      <button type="button" class="ghost" id="btnDlSong"><svg class="icon"><use href="#i-download"/></svg><span>下载</span></button>
+      <button type="button" class="ghost" id="btnDlLyric"><svg class="icon"><use href="#i-file"/></svg><span>歌词</span></button>
+      <button type="button" class="ghost" id="btnShare"><svg class="icon"><use href="#i-share"/></svg><span>分享</span></button>
+      <button type="button" class="ghost admin-only" id="btnCopyUrl"><svg class="icon"><use href="#i-link"/></svg><span>地址</span></button>
+      <button type="button" class="ghost admin-only" id="btnCacheSong"><svg class="icon"><use href="#i-cloud"/></svg><span>缓存</span></button>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="歌曲列表">
+    <div class="panel-head">
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" data-view="search" aria-selected="true">搜索</button>
+        <button type="button" role="tab" data-view="playlist" aria-selected="false">我的列表<i id="countMy"></i></button>
+        <button type="button" role="tab" data-view="radio" aria-selected="false">今日电台<i id="countRadio"></i></button>
+        <button type="button" role="tab" data-view="lyrics" aria-selected="false">歌词</button>
+        <button type="button" role="tab" data-view="library" aria-selected="false" class="admin-only">曲库</button>
+      </div>
+      <div class="panel-tools">
+        <button type="button" class="tool" data-for="playlist" id="btnImportPl" title="从 JSON 文件导入"><svg class="icon"><use href="#i-upload"/></svg><span>导入</span></button>
+        <div class="tool-wrap" data-for="playlist radio">
+          <button type="button" class="tool" id="btnExportPl" aria-haspopup="menu" aria-expanded="false"><svg class="icon"><use href="#i-download"/></svg><span>导出</span></button>
+          <div class="pop" id="exportMenu" role="menu" hidden>
+            <button type="button" role="menuitem" data-export="json">JSON（可再导入）</button>
+            <button type="button" role="menuitem" data-export="m3u">M3U 播放列表</button>
+            <button type="button" role="menuitem" data-export="txt">纯文本</button>
           </div>
         </div>
-        <button type="button" id="btnImportPl" style="display:none">导入</button>
-        <button type="button" id="btnReloadRadio" style="display:none">刷新电台</button>
-        <button type="button" id="btnClearRadio" style="display:none">清空电台</button>
-        <button type="button" id="btnRefreshLib" class="admin-only">刷新库</button>
+        <button type="button" class="tool" data-for="playlist" id="btnClearPl"><svg class="icon"><use href="#i-trash"/></svg><span>清空</span></button>
+        <button type="button" class="tool" data-for="radio" id="btnReloadRadio"><svg class="icon"><use href="#i-refresh"/></svg><span>换一批</span></button>
+        <button type="button" class="tool" data-for="radio" id="btnClearRadio"><svg class="icon"><use href="#i-trash"/></svg><span>清空</span></button>
+        <button type="button" class="tool" data-for="library" id="btnRefreshLib"><svg class="icon"><use href="#i-refresh"/></svg><span>刷新</span></button>
       </div>
     </div>
-    <div class="rp-body" id="rpBody"></div>
-  </div>
+    <p class="panel-sub" id="panelSub"></p>
+    <div class="panel-body" id="panelBody">
+      <div class="view" data-view="search" id="viewSearch"></div>
+      <div class="view" data-view="playlist" id="viewPlaylist" hidden></div>
+      <div class="view" data-view="radio" id="viewRadio" hidden></div>
+      <div class="view view-lyrics" data-view="lyrics" id="viewLyrics" hidden><div class="lyrics" id="lyrics"></div></div>
+      <div class="view" data-view="library" id="viewLibrary" hidden></div>
+    </div>
+  </section>
+</main>
+
+<div class="mini" id="mini" hidden>
+  <div class="mini-prog"><i id="miniFill"></i></div>
+  <button type="button" class="mini-open" id="miniOpen" aria-label="打开正在播放">
+    <span class="mini-cover"><img id="miniCover" alt="" width="44" height="44" decoding="async" referrerpolicy="no-referrer"></span>
+    <span class="mini-text"><b id="miniTitle"></b><small id="miniArtist"></small></span>
+  </button>
+  <button type="button" class="icon-btn" id="miniPlay" aria-label="播放"><svg class="icon"><use href="#i-play"/></svg></button>
+  <button type="button" class="icon-btn" id="miniNext" aria-label="下一首"><svg class="icon"><use href="#i-next"/></svg></button>
 </div>
 
-<audio id="audio" preload="auto" crossorigin="anonymous"></audio>
-<div class="toast" id="toast"></div>
-<input type="file" id="importFile" accept="application/json,.json" style="display:none">
-<a class="footer-link" href="https://yeuxark.com" target="_blank" rel="noopener">← yeuxark.com</a>
+<div class="menu" id="rowMenu" role="menu" hidden></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<!-- Admin: upstream picker + probe + add/delete -->
-<div class="modal-mask" id="upstreamModal" hidden>
-  <div class="modal-panel upstream-panel" role="dialog" aria-labelledby="upModalTitle">
-    <div class="modal-head">
-      <h2 id="upModalTitle">上游 API 管理</h2>
-      <button type="button" class="modal-close" id="upModalClose" title="关闭">×</button>
+<dialog class="dialog" id="dlg">
+  <form method="dialog" class="dialog-body" id="dlgForm">
+    <h2 class="dialog-title" id="dlgTitle"></h2>
+    <p class="dialog-desc" id="dlgDesc"></p>
+    <input class="field" id="dlgInput" autocomplete="off">
+    <div class="dialog-actions" id="dlgActions"></div>
+  </form>
+</dialog>
+
+<dialog class="dialog wide" id="dlgUpstream" aria-labelledby="upTitle">
+  <div class="dialog-body">
+    <div class="dialog-head">
+      <h2 class="dialog-title" id="upTitle">上游 API 管理</h2>
+      <button type="button" class="icon-btn" id="upClose" aria-label="关闭"><svg class="icon"><use href="#i-x"/></svg></button>
     </div>
-    <p class="modal-hint">测活从 <strong>本 VPS</strong> 访问上游（与浏览器网络无关）。仅第三方代理，不含网易官方接口。可增删自定义源。</p>
+    <p class="dialog-desc">测活从本 VPS 访问上游（与浏览器网络无关）。可增删自定义源，切换立即生效。</p>
     <div class="up-toolbar">
-      <button type="button" id="upBtnProbe" class="up-btn primary">⚡ 测速 / 测活</button>
-      <button type="button" id="upBtnShowAdd" class="up-btn">＋ 添加源</button>
+      <button type="button" class="btn primary" id="upBtnProbe"><svg class="icon"><use href="#i-zap"/></svg>测速 / 测活</button>
+      <button type="button" class="btn" id="upBtnShowAdd"><svg class="icon"><use href="#i-plus"/></svg>添加源</button>
       <span class="up-status" id="upProbeStatus">尚未测速</span>
     </div>
-    <div class="up-quota" id="upQuotaBox">
-      <span class="up-quota-label">ChKSz 额度</span>
-      <strong id="upQuotaText">今日已用 -- / 剩余 --</strong>
-      <button type="button" class="up-btn" id="upQuotaRefresh" title="读取最近一次请求头里的额度">刷新</button>
-    </div>
-    <div class="up-add-form" id="upAddForm" hidden>
-      <div class="up-add-row">
-        <label>名称<input type="text" id="upAddName" placeholder="例如 Meting 备用2" maxlength="40"></label>
-        <label>类型
-          <select id="upAddKind">
-            <option value="meting">Meting 协议</option>
-            <option value="chksz">chksz 风格</option>
-            <option value="ors">ORS 无损 (QQ/酷狗/酷我/咪咕)</option>
-          </select>
-        </label>
+    <div class="up-quota"><span>ChKSz 额度</span><strong id="upQuotaText">今日已用 -- / 剩余 --</strong><button type="button" class="btn small" id="upQuotaRefresh">刷新</button></div>
+    <form class="up-add" id="upAddForm" hidden>
+      <label>名称<input class="field" id="upAddName" placeholder="例如 Meting 备用2" maxlength="40"></label>
+      <label>类型
+        <select class="field" id="upAddKind">
+          <option value="meting">Meting 协议</option>
+          <option value="chksz">chksz 风格</option>
+          <option value="ors">ORS 无损（QQ/酷狗/酷我/咪咕）</option>
+        </select>
+      </label>
+      <label class="span2">Endpoint URL<input class="field" id="upAddEndpoint" type="url" placeholder="https://example.com/meting/" maxlength="200"></label>
+      <label class="span2">备注（可选）<input class="field" id="upAddDesc" placeholder="来源说明" maxlength="120"></label>
+      <div class="span2 up-add-actions">
+        <button type="button" class="btn primary" id="upBtnAdd">确认添加</button>
+        <button type="button" class="btn" id="upBtnAddCancel">取消</button>
       </div>
-      <div class="up-add-row">
-        <label class="grow">Endpoint URL
-          <input type="url" id="upAddEndpoint" placeholder="https://example.com/meting/" maxlength="200">
-        </label>
-      </div>
-      <div class="up-add-row">
-        <label class="grow">备注（可选）
-          <input type="text" id="upAddDesc" placeholder="来源说明" maxlength="120">
-        </label>
-      </div>
-      <div class="up-add-actions">
-        <button type="button" id="upBtnAdd" class="up-btn primary">确认添加</button>
-        <button type="button" id="upBtnAddCancel" class="up-btn">取消</button>
-      </div>
-      <p class="up-add-tip">Meting 示例：<code>https://api.xxx.com/meting/</code>（需支持 type=song/url/lrc）</p>
-    </div>
-    <div class="up-list" id="upList"><!-- cards filled by JS --></div>
-    <div class="up-legend">
-      <span><i class="dot ok"></i> 可达</span>
-      <span><i class="dot bad"></i> 失败</span>
-      <span><i class="dot cur"></i> 当前使用</span>
-    </div>
-    <p class="modal-foot" id="upRecommend"></p>
+    </form>
+    <div class="up-list" id="upList"></div>
+    <p class="up-foot" id="upRecommend"></p>
   </div>
-</div>
+</dialog>
 
-<script src="/static/app.js?v=20260823osc5"></script>
+<input type="file" id="importFile" accept="application/json,.json" hidden>
+<audio id="audio" preload="auto"></audio>
+<script src="{{ asset('app.js') }}" defer></script>
 </body>
 </html>

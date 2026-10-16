@@ -14,6 +14,32 @@ server {
         default_type text/plain;
     }
 
+    # Cached audio the app hands over with X-Accel-Redirect (KAZAM_CACHE_ACCEL):
+    # nginx sends the file and answers Range itself, so no gunicorn thread is
+    # held for the length of a song. internal = unreachable from outside.
+    # The cache lives outside /home/yeux (data/cache is a symlink here) so
+    # www-data reads only this directory (yeux:www-data 2750).
+    location ^~ /_kazam_cache/ {
+        internal;
+        alias /srv/kazam/cache/;
+        types {
+            audio/mpeg mp3;
+            audio/flac flac;
+            audio/mp4  m4a;
+            audio/aac  aac;
+            audio/ogg  ogg;
+            audio/wav  wav;
+        }
+        # The redirect keeps Content-Type, Cache-Control and Content-Disposition;
+        # the CORS and cache-status headers the app set are carried over here.
+        add_header Access-Control-Allow-Origin $upstream_http_access_control_allow_origin always;
+        add_header Access-Control-Allow-Credentials $upstream_http_access_control_allow_credentials always;
+        add_header Access-Control-Expose-Headers $upstream_http_access_control_expose_headers always;
+        add_header Vary $upstream_http_vary always;
+        add_header X-Kazam-Cache $upstream_http_x_kazam_cache always;
+        add_header X-Kazam-Level $upstream_http_x_kazam_level always;
+    }
+
     location / {
         proxy_pass http://127.0.0.1:8080;
         proxy_http_version 1.1;

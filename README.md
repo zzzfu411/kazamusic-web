@@ -87,8 +87,14 @@ DELETE /api/cache/{id}           # 删除缓存（管理员）
 - 未缓存的歌：一次 GET 直达 CDN 并透传 Range（不再先探测、HEAD），链接失效自动重新解析一次
 - 同一首歌的上游查询合并成一次（播放器同时请求音频和元数据也只花一次额度）
 - 静态文件带内容哈希 `?v=`，缓存一年；nginx 对 JSON / JS / CSS 开 gzip（见 `deploy/`）
-- gunicorn 用 16 个线程（`deploy/kazam.service`）：每个正在播放的音频会占一个线程
-- 可选：设置 `KAZAM_CACHE_ACCEL=/_kazam_cache/` 并在 nginx 加一个 `internal` 的 location（`alias` 到缓存目录），缓存音频改由 nginx 直接发送、不占线程。需要 nginx 能读到缓存目录——放开目录权限前先把 `.env` 改成 600
+- gunicorn 用 16 个线程（`deploy/kazam.service`）：未缓存的歌由程序转发，播放期间占一个线程
+- 已缓存的音频交给 nginx 发送（X-Accel-Redirect）：`.env` 里设 `KAZAM_CACHE_ACCEL=/_kazam_cache/`，nginx 的 `internal` location 指向缓存目录（见 `deploy/music.yeuxark.com.nginx`）。程序只做检查、立刻交出去，Range / 拖动进度由 nginx 处理，不占线程
+
+### 线上目录与权限（music.yeuxark.com）
+
+- 缓存实际在 `/srv/kazam/cache`（`yeux:www-data`，目录 `2750` 带 setgid，新文件自动归 `www-data` 组），`data/cache` 是指向它的符号链接。nginx（`www-data`）只能读这一个目录，`/home/yeux` 保持 `750` 不对它开放
+- 不要用 `CACHE_DIR` 环境变量搬缓存：`runtime.json` 的位置是 `CACHE_DIR` 的上一级，改了会让后台设置（上游、密钥）找不到。要搬就像上面那样换成符号链接
+- `.env`、`config.py`、`.env.example`、`deploy_test_admin.py` 在服务器上是 `600`（含管理员密码 / 密钥）；改了 `.env` 要 `systemctl restart kazam`（它由 systemd 的 `EnvironmentFile` 读取，`kill -HUP` 不会重读）
 
 ---
 

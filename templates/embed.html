@@ -6,6 +6,7 @@
 <meta name="color-scheme" content="dark">
 <meta name="referrer" content="no-referrer">
 <title>KAZAM</title>
+<link rel="icon" href="/favicon.ico" type="image/svg+xml">
 <link rel="stylesheet" href="{{ asset('embed.css') }}">
 <script>
   window.KAZAM_PUBLIC_BASE = {{ public_base|tojson }};
@@ -17,17 +18,23 @@
   <div class="embed" id="card">
     <div class="art" id="art"></div>
     <div class="art-shade"></div>
-    <img class="cover" id="cover" alt="" hidden>
+    <div class="cover-wrap">
+      <img class="cover-fallback" src="{{ asset('default-cover.webp') }}" alt="">
+      <img class="cover" id="cover" alt="" hidden>
+    </div>
     <div class="meta">
       <div class="t" id="title">加载中…</div>
-      <div class="a" id="artist"></div>
+      <div class="a" id="artist">KAZAM Hi-Fi</div>
       <div class="bar" id="bar"><i id="fill"></i></div>
     </div>
     <button type="button" class="play" id="btnPlay" aria-label="播放">
       <svg viewBox="0 0 24 24" id="iconPlay"><path d="M8 5.6v12.8a1 1 0 0 0 1.53.85l10.1-6.4a1 1 0 0 0 0-1.7L9.53 4.75A1 1 0 0 0 8 5.6z"/></svg>
       <svg viewBox="0 0 24 24" id="iconPause" hidden><rect x="6.5" y="5" width="4" height="14" rx="1.2"/><rect x="13.5" y="5" width="4" height="14" rx="1.2"/></svg>
     </button>
-    <a class="open" id="openFull" href="/" target="_blank" rel="noopener" title="打开完整播放器">KAZAM ↗</a>
+    <a class="open" id="openFull" href="/" target="_blank" rel="noopener" title="打开完整播放器">
+      <img src="{{ asset('logo.webp') }}" alt="" width="13" height="13">
+      <span>KAZAM ↗</span>
+    </a>
   </div>
   <audio id="audio" preload="none"></audio>
   <script src="{{ asset('embed.js') }}" defer></script>

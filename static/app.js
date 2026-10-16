@@ -34,17 +34,18 @@
   var phoneQuery = window.matchMedia("(max-width: 860px)");
 
   var el = {
-    search: $("#searchInput"), searchForm: $("#searchForm"),
+    search: $("#searchInput"), searchForm: $("#searchForm"), searchBadge: $("#searchBadge"),
     cover: $("#cover"), coverImg: $("#coverImg"), artA: $("#artA"), artB: $("#artB"),
     npTitle: $("#npTitle"), npArtist: $("#npArtist"), npQuality: $("#npQuality"), npCached: $("#npCached"), npActions: $("#npActions"),
-    prog: $("#progTrack"), progFill: $("#progFill"), progBuf: $("#progBuf"), timeCur: $("#timeCur"), timeTot: $("#timeTot"),
+    prog: $("#progTrack"), progFill: $("#progFill"), progBuf: $("#progBuf"), progTip: $("#progTip"), timeCur: $("#timeCur"), timeTot: $("#timeTot"),
     play: $("#btnPlay"), mode: $("#btnMode"), vol: $("#btnVol"), volSlider: $("#volSlider"), level: $("#audioLevel"),
     mini: $("#mini"), miniCover: $("#miniCover"), miniTitle: $("#miniTitle"), miniArtist: $("#miniArtist"), miniFill: $("#miniFill"), miniPlay: $("#miniPlay"),
-    panelBody: $("#panelBody"), panelSub: $("#panelSub"), countMy: $("#countMy"), countRadio: $("#countRadio"),
+    panelBody: $("#panelBody"), panelSub: $("#panelSub"), countMy: $("#countMy"), countRadio: $("#countRadio"), listFilter: $("#listFilter"),
     lyrics: $("#lyrics"), viewLyrics: $("#viewLyrics"), stageLyrics: $("#stageLyrics"),
     menu: $("#rowMenu"), toast: $("#toast"), exportMenu: $("#exportMenu"), exportBtn: $("#btnExportPl"),
     dlg: $("#dlg"), dlgTitle: $("#dlgTitle"), dlgDesc: $("#dlgDesc"), dlgInput: $("#dlgInput"), dlgActions: $("#dlgActions"),
     quota: $("#chkszQuota"), meta: $("#metaThemeColor"),
+    btnVinyl: $("#btnVinylMode"), btnSleep: $("#btnSleep"), sleepBadge: $("#sleepBadge"), btnShortcuts: $("#btnShortcuts"),
   };
   var views = {
     search: $("#viewSearch"), playlist: $("#viewPlaylist"), radio: $("#viewRadio"), lyrics: $("#viewLyrics"), library: $("#viewLibrary"),
@@ -57,9 +58,12 @@
   var view = "search";
   var lastListView = "search";
   var search = { kw: "", state: "idle", results: [], error: "", token: 0 };
+  var searchHist = [];
+  var filterQuery = "";
   var library = { items: [], loaded: false, loading: false };
   var lyric = { lines: [], state: "idle", idx: -1, holdUntil: 0 };
   var admin = { on: false, token: "" };
+  var sleepTimer = { endAt: 0, id: 0 };
   var playToken = 0;
   var userPaused = false;
   var failStreak = 0;
@@ -67,6 +71,18 @@
   var prefetchedFor = -1;
   var bag = [], bagKey = "", shuffleHist = [];
   var radioLoading = false;
+  var MOODS = [
+    ["流行热歌", "华语流行 · 热门榜单"],
+    ["独立民谣", "吉他叙事 · 温暖治愈"],
+    ["日系动漫", "ACG 原声 · J-Pop"],
+    ["R&B 夜色", "微醺律动 · 深夜电台"],
+    ["爵士咖啡馆", "慵懒萨克斯 · 钢琴三重奏"],
+    ["轻音乐", "专注学习 · 氛围纯音"],
+    ["粤语经典", "港乐黄金年代"],
+    ["电子律动", "Synth · House · 节拍"],
+    ["经典摇滚", "乐队现场 · 失真吉他"],
+    ["影视金曲", "电影与剧集 OST"],
+  ];
 
   // ── helpers ──────────────────────────────────────────────────────────
   function esc(s) {
@@ -341,18 +357,34 @@
     el.progFill.style.transform = "scaleX(" + drag.frac + ")";
     el.timeCur.textContent = fmt(drag.frac * audio.duration);
   }
+  function updateProgTip(e) {
+    if (!el.progTip || !(audio.duration > 0) || !isFinite(audio.duration)) return;
+    var r = el.prog.getBoundingClientRect();
+    var frac = clamp((e.clientX - r.left) / r.width, 0, 1);
+    el.progTip.hidden = false;
+    el.progTip.style.left = (frac * 100) + "%";
+    el.progTip.textContent = fmt(frac * audio.duration);
+  }
   el.prog.addEventListener("pointerdown", function (e) {
     if (!(audio.duration > 0) || !isFinite(audio.duration)) return;
     drag.on = true;
     el.prog.classList.add("drag");
     try { el.prog.setPointerCapture(e.pointerId); } catch (_) {}
     dragTo(e);
+    updateProgTip(e);
   });
-  el.prog.addEventListener("pointermove", function (e) { if (drag.on) dragTo(e); });
+  el.prog.addEventListener("pointermove", function (e) {
+    updateProgTip(e);
+    if (drag.on) dragTo(e);
+  });
+  el.prog.addEventListener("pointerleave", function () {
+    if (el.progTip && !drag.on) el.progTip.hidden = true;
+  });
   function endDrag() {
     if (!drag.on) return;
     drag.on = false;
     el.prog.classList.remove("drag");
+    if (el.progTip) el.progTip.hidden = true;
     seekTo(drag.frac * audio.duration);
   }
   el.prog.addEventListener("pointerup", endDrag);
@@ -707,10 +739,46 @@
       (hint ? "<small>" + esc(hint) + "</small>" : "") +
       (action ? '<button type="button" class="btn primary" data-act="' + action[0] + '">' + esc(action[1]) + "</button>" : "") + "</div>";
   }
+  function discoverHTML() {
+    var histSec = "";
+    if (searchHist.length) {
+      histSec = '<div class="discover-sec">' +
+        '<div class="discover-sec-head"><span>最近搜索</span><button type="button" data-act="clear-hist">清空</button></div>' +
+        '<div class="chip-list">' + searchHist.map(function (k) {
+          return '<button type="button" class="chip" data-kw="' + esc(k) + '">' + esc(k) + "</button>";
+        }).join("") + "</div></div>";
+    }
+    var moods = MOODS.map(function (m) {
+      return '<button type="button" class="mood-card" data-kw="' + esc(m[0]) + '">' +
+        "<b>" + esc(m[0]) + "</b><small>" + esc(m[1]) + "</small></button>";
+    }).join("");
+    return '<div class="discover">' +
+      '<div class="discover-hero">' +
+        '<button type="button" class="hero-card" data-act="radio">' +
+          '<span class="hero-card-icon"><svg class="icon"><use href="#i-radio"/></svg></span>' +
+          '<span class="hero-card-txt"><b>今日电台 · 随心听</b><small>每次随机挑一批精选好歌，不占你的列表</small></span>' +
+        "</button>" +
+        '<button type="button" class="hero-card secondary" data-act="import-netease">' +
+          '<span class="hero-card-icon"><svg class="icon"><use href="#i-list-plus"/></svg></span>' +
+          '<span class="hero-card-txt"><b>导入网易云歌单</b><small>粘贴歌单或单曲链接 / ID 一键同步解析</small></span>' +
+        "</button>" +
+      "</div>" +
+      histSec +
+      '<div class="discover-sec">' +
+        '<div class="discover-sec-head"><span>灵感频道 · 点一下立即探索</span></div>' +
+        '<div class="mood-grid">' + moods + "</div>" +
+      "</div>" +
+    "</div>";
+  }
   function skeletonHTML(n) {
     var s = "";
     for (var i = 0; i < n; i++) s += '<div class="skeleton"></div>';
     return s;
+  }
+  function matchFilter(t, q) {
+    if (!q) return true;
+    var hay = ((t.name || "") + " " + (t.artist || "") + " " + (t.album || "") + " " + (t.id || "")).toLowerCase();
+    return hay.indexOf(q) >= 0;
   }
   function renderView(v) {
     if (v === "lyrics") return;
@@ -721,7 +789,7 @@
       if (search.state === "loading") html = skeletonHTML(8);
       else if (search.state === "error") html = emptyHTML("#i-search", "搜索失败", search.error || "上游暂时没有响应", ["retry-search", "再试一次"]);
       else if (!list.length && search.state === "done") html = emptyHTML("#i-search", "没有找到「" + search.kw + "」", "换个关键词试试，或粘贴网易云歌曲链接");
-      else if (!list.length) html = emptyHTML("#i-search", "搜一首歌", "也可以直接粘贴网易云歌曲链接或 ID");
+      else if (!list.length) html = discoverHTML();
     } else if (v === "playlist" && !list.length) {
       html = emptyHTML("#i-list-plus", "列表还是空的", "在搜索结果里点 ＋，或者导入一张网易云歌单", ["import-netease", "导入歌单"]);
     } else if (v === "radio" && !list.length) {
@@ -729,7 +797,15 @@
     } else if (v === "library" && !list.length) {
       html = library.loading ? skeletonHTML(6) : emptyHTML("#i-library", "服务器上还没有缓存", "播放时点「缓存」把歌存到服务器");
     }
-    box.innerHTML = html || list.map(function (t, i) { return rowHTML(t, i, v); }).join("");
+    if (!html) {
+      var fq = (v === "playlist" || v === "radio" || v === "library") ? filterQuery.trim().toLowerCase() : "";
+      var rows = [];
+      list.forEach(function (t, i) {
+        if (!fq || matchFilter(t, fq)) rows.push(rowHTML(t, i, v));
+      });
+      html = rows.length ? rows.join("") : emptyHTML("#i-search", "没有匹配的曲目", "换个筛选词试试");
+    }
+    box.innerHTML = html;
     if (v === "playlist") el.countMy.textContent = S.playlist.length ? String(S.playlist.length) : "";
     if (v === "radio") el.countRadio.textContent = S.radio.length ? String(S.radio.length) : "";
     markCurrent();
@@ -751,7 +827,7 @@
     if (view === "search") {
       text = search.state === "loading" ? "正在搜索「" + search.kw + "」…"
         : search.state === "done" && search.results.length ? search.results.length + " 首 ·「" + search.kw + "」· 点一下就播"
-        : "";
+        : "支持直接粘贴网易云单曲链接 / ID 秒级解析播放";
     } else if (view === "playlist") {
       text = S.playlist.length ? S.playlist.length + " 首" + (isPhone() ? "" : " · 拖动左侧把手排序，Alt + ↑↓ 也可以") : "";
     } else if (view === "radio") {
@@ -774,6 +850,11 @@
     $$(".panel-tools [data-for]").forEach(function (t) {
       t.hidden = t.getAttribute("data-for").split(" ").indexOf(v) < 0;
     });
+    if (el.listFilter && filterQuery) {
+      filterQuery = "";
+      el.listFilter.value = "";
+      if (v === "playlist" || v === "radio" || v === "library") renderView(v);
+    }
     closeExport();
     closeMenu();
     if (v === "lyrics") { mountLyrics(); syncLyric(true); }
@@ -783,6 +864,12 @@
   $$(".tabs [data-view]").forEach(function (b) {
     b.addEventListener("click", function () { setView(b.getAttribute("data-view")); });
   });
+  if (el.listFilter) {
+    el.listFilter.addEventListener("input", function () {
+      filterQuery = el.listFilter.value || "";
+      if (view === "playlist" || view === "radio" || view === "library") renderView(view);
+    });
+  }
 
   // list mutations
   function findIndex(list, id) {
@@ -865,6 +952,13 @@
 
   // row clicks, keys and menus (one listener for every list)
   el.panelBody.addEventListener("click", function (e) {
+    var kwEl = e.target.closest("[data-kw]");
+    if (kwEl) {
+      var kw = kwEl.getAttribute("data-kw");
+      el.search.value = kw;
+      doSearch(kw);
+      return;
+    }
     var actEl = e.target.closest("[data-act]");
     var row = e.target.closest(".row");
     if (!row) { if (actEl) globalAct(actEl.getAttribute("data-act")); return; }
@@ -914,6 +1008,12 @@
     if (a === "retry-search") doSearch(search.kw);
     else if (a === "import-netease") importNetease();
     else if (a === "radio") loadRadio();
+    else if (a === "clear-hist") {
+      searchHist = [];
+      try { localStorage.removeItem("kazam.searchHist"); } catch (_) {}
+      renderView("search");
+      toast("已清空搜索历史");
+    }
   }
 
   var menuCtx = null;
@@ -1151,6 +1251,28 @@
   $("#btnLyrics").addEventListener("click", function () { setView(view === "lyrics" ? lastListView : "lyrics"); });
 
   // ── search / parse ───────────────────────────────────────────────────
+  function pushSearchHist(kw) {
+    if (!kw || LINKISH.test(kw)) return;
+    searchHist = [kw].concat(searchHist.filter(function (x) { return x !== kw; })).slice(0, 10);
+    try { localStorage.setItem("kazam.searchHist", JSON.stringify(searchHist)); } catch (_) {}
+  }
+  el.search.addEventListener("input", function () {
+    var v = (el.search.value || "").trim();
+    if (el.searchBadge) el.searchBadge.hidden = !LINKISH.test(v);
+    if (!v && search.state !== "idle") {
+      search.state = "idle";
+      search.results = [];
+      search.kw = "";
+      if (view === "search") renderView("search");
+    }
+  });
+  if (el.npArtist) {
+    el.npArtist.addEventListener("click", function () {
+      if (!cur || !cur.artist) return;
+      var a = String(cur.artist).split(/[\/、,&]/)[0].trim();
+      if (a) { el.search.value = a; doSearch(a); }
+    });
+  }
   function doSearch(raw) {
     var kw = String(raw || "").trim();
     if (!kw) { el.search.focus(); return; }
@@ -1163,6 +1285,7 @@
   }
   function runSearch(kw) {
     var token = ++search.token;
+    pushSearchHist(kw);
     search.kw = kw;
     search.state = "loading";
     search.results = [];
@@ -1637,7 +1760,7 @@
     });
   });
 
-  // ── controls & keys ──────────────────────────────────────────────────
+  // ── controls, vinyl mode, sleep timer & keys ─────────────────────────
   el.play.addEventListener("click", togglePlay);
   el.miniPlay.addEventListener("click", togglePlay);
   $("#btnNext").addEventListener("click", function () { next(false); });
@@ -1648,6 +1771,86 @@
     toast(MODE_INFO[S.mode].label);
     scheduleSave();
   });
+
+  if (el.btnVinyl) {
+    el.btnVinyl.addEventListener("click", function () {
+      var on = body.classList.toggle("vinyl-on");
+      try { localStorage.setItem("kazam.vinylMode", on ? "1" : "0"); } catch (_) {}
+      toast(on ? "已切换为黑胶唱盘模式" : "已切换为方形专辑模式");
+    });
+  }
+
+  function updateSleepUI() {
+    if (!el.sleepBadge || !el.btnSleep) return;
+    if (!sleepTimer.endAt) {
+      el.sleepBadge.hidden = true;
+      el.btnSleep.classList.remove("on");
+      return;
+    }
+    var rem = Math.max(0, Math.ceil((sleepTimer.endAt - Date.now()) / 60000));
+    if (rem <= 0) {
+      clearInterval(sleepTimer.id);
+      sleepTimer.endAt = 0;
+      el.sleepBadge.hidden = true;
+      el.btnSleep.classList.remove("on");
+      if (!audio.paused) { userPaused = true; audio.pause(); toast("睡眠定时已到，已自动暂停播放"); }
+      return;
+    }
+    el.sleepBadge.hidden = false;
+    el.sleepBadge.textContent = rem + "m";
+    el.btnSleep.classList.add("on");
+  }
+  function setSleepMinutes(mins) {
+    clearInterval(sleepTimer.id);
+    if (!mins || mins <= 0) {
+      sleepTimer.endAt = 0;
+      updateSleepUI();
+      toast("已取消睡眠定时");
+      return;
+    }
+    sleepTimer.endAt = Date.now() + mins * 60000;
+    updateSleepUI();
+    sleepTimer.id = setInterval(updateSleepUI, 15000);
+    toast("将在 " + mins + " 分钟后自动暂停播放");
+  }
+  if (el.btnSleep) {
+    el.btnSleep.addEventListener("click", function () {
+      var btns = [
+        { label: "取消", value: "" },
+        { label: "15 分钟", value: "15" },
+        { label: "30 分钟", value: "30" },
+        { label: "60 分钟", value: "60", kind: "primary" },
+      ];
+      if (sleepTimer.endAt) btns.splice(1, 0, { label: "关闭定时", value: "0", kind: "danger" });
+      openDialog({
+        title: "睡眠定时关闭",
+        desc: sleepTimer.endAt ? "当前定时运行中，到时将自动暂停音乐。" : "选择倒计时时长，到点后自动暂停播放。",
+        buttons: btns,
+      }).then(function (r) {
+        if (!r || r.action === "") return;
+        setSleepMinutes(Number(r.action));
+      });
+    });
+  }
+
+  function showShortcutsHelp() {
+    openDialog({
+      title: "快捷键与使用指南",
+      desc: [
+        "Space (空格)  —  播放 / 暂停",
+        "← / →         —  上一首 / 下一首",
+        "Shift + ← / → —  快退 / 快进 10 秒",
+        "↑ / ↓         —  调节音量",
+        "M             —  静音切换",
+        "L             —  切换同步歌词视图",
+        "/             —  聚焦顶部搜索框",
+        "Alt + ↑ / ↓   —  在列表中上下移动曲目",
+        "连点左上角 KAZAM 5 次 — 进入管理员曲库模式",
+      ].join("\n"),
+      buttons: [{ label: "知道了", value: "ok", kind: "primary" }],
+    });
+  }
+  if (el.btnShortcuts) el.btnShortcuts.addEventListener("click", showShortcutsHelp);
 
   document.addEventListener("keydown", function (e) {
     var tag = (e.target && e.target.tagName) || "";
@@ -1681,6 +1884,8 @@
         break;
       case "/":
         e.preventDefault(); el.search.focus(); el.search.select(); break;
+      case "?":
+        e.preventDefault(); showShortcutsHelp(); break;
     }
   });
 
@@ -1723,6 +1928,11 @@
 
   // ── boot ─────────────────────────────────────────────────────────────
   if (IOS) body.classList.add("ios");
+  try {
+    if (localStorage.getItem("kazam.vinylMode") === "0") body.classList.remove("vinyl-on");
+    var rawHist = JSON.parse(localStorage.getItem("kazam.searchHist") || "[]");
+    if (Array.isArray(rawHist)) searchHist = rawHist.filter(Boolean).slice(0, 10);
+  } catch (_) {}
   try { var savedLevel = localStorage.getItem(LEVEL_KEY); if (LEVEL_LABELS[savedLevel]) level = savedLevel; } catch (_) {}
   setLevel(level, { silent: true });
   if (!loadState() && !IOS) audio.volume = 0.7;

@@ -906,14 +906,31 @@ def health():
 def favicon():
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
-        '<rect width="100" height="100" rx="24" fill="#15151b"/>'
-        '<path d="M40 70V31l30-6v36" fill="none" stroke="#fff" stroke-width="7" '
+        '<defs>'
+        '<linearGradient id="kg" x1="0%" y1="0%" x2="100%" y2="100%">'
+        '<stop offset="0%" stop-color="#ffd166"/>'
+        '<stop offset="55%" stop-color="#f78c6b"/>'
+        '<stop offset="100%" stop-color="#ef476f"/>'
+        '</linearGradient>'
+        '</defs>'
+        '<rect width="100" height="100" rx="24" fill="#0d0d13"/>'
+        '<circle cx="50" cy="50" r="36" fill="none" stroke="url(#kg)" stroke-width="2.2" stroke-opacity="0.28"/>'
+        '<circle cx="50" cy="50" r="27" fill="none" stroke="url(#kg)" stroke-width="1.8" stroke-opacity="0.22"/>'
+        '<circle cx="50" cy="50" r="8" fill="none" stroke="url(#kg)" stroke-width="3.2"/>'
+        '<path d="M31 24v52M31 50l28-26M37 45l25 31" fill="none" stroke="url(#kg)" stroke-width="7.5" '
         'stroke-linecap="round" stroke-linejoin="round"/>'
-        '<circle cx="32" cy="70" r="9" fill="#fff"/><circle cx="62" cy="61" r="9" fill="#f2c94c"/></svg>'
+        '<path d="M68 34a22 22 0 0 1 0 32M76 27a31 31 0 0 1 0 46" fill="none" stroke="url(#kg)" '
+        'stroke-width="4.5" stroke-linecap="round"/>'
+        '</svg>'
     )
     resp = Response(svg, mimetype="image/svg+xml")
     resp.headers["Cache-Control"] = "public, max-age=604800"
     return resp
+
+
+@app.route("/apple-touch-icon.png")
+def apple_touch_icon():
+    return send_from_directory(app.static_folder, "logo.png", max_age=604800)
 
 
 # ── API ───────────────────────────────────────────────────────────

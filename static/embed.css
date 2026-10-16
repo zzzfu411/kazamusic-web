@@ -1,20 +1,66 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: transparent; }
-body { font: 14px/1.4 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif; color: rgba(255, 255, 255, 0.94); }
-.embed {
-  position: relative; display: flex; align-items: center; gap: 12px; height: 100%; min-height: 72px;
-  padding: 10px 12px; border-radius: 14px; overflow: hidden; background: #15151b; isolation: isolate;
+body {
+  font: 14px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  color: rgba(255, 255, 255, 0.95);
+  -webkit-font-smoothing: antialiased;
 }
-.art { position: absolute; inset: -20%; z-index: -2; background: center / cover no-repeat; filter: blur(30px) saturate(1.5); opacity: 0.55; }
-.art-shade { position: absolute; inset: 0; z-index: -1; background: linear-gradient(90deg, rgba(12, 12, 16, 0.55), rgba(12, 12, 16, 0.85)); }
-.cover { width: 52px; height: 52px; border-radius: 9px; object-fit: cover; flex: none; box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.7); }
-.meta { flex: 1; min-width: 0; }
-.t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.a { font-size: 12px; color: rgba(255, 255, 255, 0.62); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bar { position: relative; height: 3px; margin-top: 8px; border-radius: 3px; background: rgba(255, 255, 255, 0.16); cursor: pointer; }
-.bar i { position: absolute; inset: 0; border-radius: 3px; background: #fff; transform-origin: left; transform: scaleX(0); }
-.play { width: 40px; height: 40px; flex: none; border: 0; border-radius: 50%; display: grid; place-items: center; background: #fff; color: #111; cursor: pointer; }
+.embed {
+  position: relative; display: flex; align-items: center; gap: 14px; height: 100%; min-height: 76px;
+  padding: 12px 14px; border-radius: 16px; overflow: hidden;
+  background: #101017;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  isolation: isolate;
+}
+.art {
+  position: absolute; inset: -22%; z-index: -2;
+  background: center / cover no-repeat;
+  filter: blur(34px) saturate(1.65); opacity: 0.58;
+}
+.art-shade {
+  position: absolute; inset: 0; z-index: -1;
+  background: linear-gradient(95deg, rgba(10, 10, 15, 0.55) 0%, rgba(10, 10, 15, 0.88) 100%);
+}
+.cover-wrap {
+  position: relative; width: 54px; height: 54px; border-radius: 11px; overflow: hidden; flex: none;
+  background: #0b0b10;
+  box-shadow: 0 8px 22px -6px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+.cover-fallback, .cover {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.cover[hidden] { display: none; }
+.meta { flex: 1; min-width: 0; padding-right: 4px; }
+.t { font-weight: 700; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.a { font-size: 12px; color: rgba(255, 255, 255, 0.64); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.bar {
+  position: relative; height: 4px; margin-top: 9px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.15); cursor: pointer; overflow: hidden;
+}
+.bar i {
+  position: absolute; inset: 0; border-radius: 999px;
+  background: linear-gradient(90deg, #ffd166, #f78c6b);
+  transform-origin: left; transform: scaleX(0);
+}
+.play {
+  width: 42px; height: 42px; flex: none; border: 0; border-radius: 50%;
+  display: grid; place-items: center;
+  background: linear-gradient(135deg, #ffd166, #f78c6b);
+  color: #14110a; cursor: pointer;
+  box-shadow: 0 8px 20px -6px rgba(245, 185, 66, 0.5);
+  transition: transform 0.15s;
+}
+.play:hover { transform: scale(1.06); }
+.play:active { transform: scale(0.95); }
 .play svg { width: 20px; height: 20px; fill: currentColor; }
 .play svg[hidden] { display: none; }
-.open { position: absolute; top: 6px; right: 10px; font-size: 10px; letter-spacing: 0.1em; color: rgba(255, 255, 255, 0.45); text-decoration: none; }
-.open:hover { color: #fff; }
+.open {
+  position: absolute; top: 7px; right: 11px;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.52); text-decoration: none;
+  transition: color 0.15s;
+}
+.open img { border-radius: 3px; }
+.open:hover { color: #ffd166; }

@@ -5,20 +5,25 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <meta name="referrer" content="no-referrer">
-<meta name="theme-color" content="#111114" id="metaThemeColor">
+<meta name="theme-color" content="#0b0b10" id="metaThemeColor">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="description" content="KAZAM — 搜歌、听歌、看歌词的小工具">
+<meta name="description" content="KAZAM — 沉浸式高解析在线听歌、电台与歌词工具">
 <title>KAZAM · 听歌</title>
 <link rel="icon" href="/favicon.ico" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="dns-prefetch" href="https://p1.music.126.net">
 <link rel="dns-prefetch" href="https://p2.music.126.net">
 <link rel="dns-prefetch" href="https://p3.music.126.net">
 <link rel="dns-prefetch" href="https://p4.music.126.net">
 <link rel="stylesheet" href="{{ asset('style.css') }}">
-<script>window.KAZAM_PUBLIC_BASE = {{ public_base|tojson }};</script>
+<script>
+  window.KAZAM_PUBLIC_BASE = {{ public_base|tojson }};
+  window.KAZAM_DEFAULT_COVER = {{ asset('default-cover.webp')|tojson }};
+  window.KAZAM_LOGO_URL = {{ asset('logo.webp')|tojson }};
+</script>
 </head>
-<body>
+<body class="vinyl-on">
 <svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
@@ -55,26 +60,55 @@
     <symbol id="i-play-next" viewBox="0 0 24 24"><path d="m15 10 5 5-5 5"/><path d="M4 4v7a4 4 0 0 0 4 4h12"/></symbol>
     <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></symbol>
     <symbol id="i-library" viewBox="0 0 24 24"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></symbol>
+    <symbol id="i-disc" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.6"/><path d="M12 7a5 5 0 0 1 5 5"/><path d="M7 12a5 5 0 0 0 5 5"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m12 3 1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3z"/></symbol>
+    <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M18 13h.01M9 15h6"/></symbol>
   </defs>
 </svg>
 
 <div class="backdrop" aria-hidden="true">
   <div class="backdrop-art" id="artA"></div>
   <div class="backdrop-art" id="artB"></div>
+  <div class="backdrop-orb orb-1"></div>
+  <div class="backdrop-orb orb-2"></div>
   <div class="backdrop-veil"></div>
+  <div class="backdrop-grain"></div>
 </div>
 
 <header class="topbar">
-  <a class="brand" href="/" id="logoBtn" aria-label="KAZAM">KAZAM</a>
+  <a class="brand" href="/" id="logoBtn" aria-label="KAZAM" title="KAZAM · 连点 5 次进入管理">
+    <span class="brand-mark">
+      <img src="{{ asset('logo.webp') }}" alt="" width="36" height="36" decoding="async">
+    </span>
+    <span class="brand-copy">
+      <span class="brand-name">KAZAM</span>
+      <span class="brand-tag">HI-FI AUDIO</span>
+    </span>
+  </a>
+
   <form class="search" id="searchForm" role="search" autocomplete="off">
-    <svg class="icon"><use href="#i-search"/></svg>
+    <svg class="icon search-icon"><use href="#i-search"/></svg>
     <input id="searchInput" type="search" enterkeyhint="search" spellcheck="false"
            placeholder="搜歌、歌手，或粘贴网易云链接 / ID" aria-label="搜索">
+    <span class="search-badge" id="searchBadge" hidden>链接解析</span>
     <kbd class="search-key" aria-hidden="true">/</kbd>
   </form>
+
   <nav class="top-actions">
-    <button type="button" class="pill" id="btnRadio"><svg class="icon"><use href="#i-radio"/></svg><span>今日电台</span></button>
-    <button type="button" class="pill" id="btnLoadPl"><svg class="icon"><use href="#i-list-plus"/></svg><span>导入歌单</span></button>
+    <button type="button" class="pill pill-glow" id="btnRadio" title="随机探索今日精选曲目">
+      <svg class="icon"><use href="#i-radio"/></svg><span>今日电台</span>
+    </button>
+    <button type="button" class="pill" id="btnLoadPl" title="导入网易云歌单链接或 ID">
+      <svg class="icon"><use href="#i-list-plus"/></svg><span>导入歌单</span>
+    </button>
+    <button type="button" class="icon-btn" id="btnSleep" title="睡眠定时关闭" aria-label="睡眠定时">
+      <svg class="icon"><use href="#i-clock"/></svg>
+      <span class="sleep-badge" id="sleepBadge" hidden></span>
+    </button>
+    <button type="button" class="icon-btn hide-mobile" id="btnShortcuts" title="快捷键与帮助 (?)" aria-label="快捷键与帮助">
+      <svg class="icon"><use href="#i-keyboard"/></svg>
+    </button>
     <button type="button" class="quota admin-only" id="chkszQuota" title="ChKSz 今日额度（点击刷新）">额度 --</button>
     <button type="button" class="icon-btn admin-only" id="btnUpstream" title="上游管理" aria-label="上游管理"><svg class="icon"><use href="#i-server"/></svg></button>
     <button type="button" class="icon-btn admin-only" id="btnAdminExit" title="退出管理员" aria-label="退出管理员"><svg class="icon"><use href="#i-logout"/></svg></button>
@@ -85,83 +119,109 @@
   <section class="stage" id="stage" aria-label="正在播放">
     <div class="sheet-bar">
       <button type="button" class="icon-btn" id="btnSheetClose" aria-label="收起"><svg class="icon"><use href="#i-chevron-down"/></svg></button>
-      <span class="sheet-label">正在播放</span>
+      <span class="sheet-label">NOW PLAYING</span>
       <button type="button" class="icon-btn" id="btnSheetLyrics" aria-label="歌词" aria-pressed="false"><svg class="icon"><use href="#i-lyrics"/></svg></button>
     </div>
+
     <div class="stage-visual">
-      <div class="cover" id="cover">
-        <img id="coverImg" alt="" width="600" height="600" decoding="async" referrerpolicy="no-referrer">
-        <svg class="cover-ph icon"><use href="#i-note"/></svg>
+      <div class="turntable-wrap">
+        <div class="tonearm" aria-hidden="true"></div>
+        <div class="cover" id="cover">
+          <div class="vinyl-grooves" aria-hidden="true"></div>
+          <img class="cover-default" src="{{ asset('default-cover.webp') }}" alt="" width="600" height="600" decoding="async">
+          <img id="coverImg" alt="" width="600" height="600" decoding="async" referrerpolicy="no-referrer">
+          <div class="vinyl-spindle" aria-hidden="true"></div>
+          <svg class="cover-ph icon"><use href="#i-note"/></svg>
+        </div>
+        <button type="button" class="vinyl-toggle" id="btnVinylMode" title="切换黑胶唱盘 / 方形封面" aria-label="切换封面样式">
+          <svg class="icon"><use href="#i-disc"/></svg>
+        </button>
       </div>
       <div class="stage-lyrics" id="stageLyrics" hidden></div>
     </div>
-    <div class="np">
-      <div class="np-text">
-        <h1 class="np-title" id="npTitle">KAZAM</h1>
-        <p class="np-artist" id="npArtist">搜一首歌开始吧</p>
+
+    <div class="stage-deck">
+      <div class="np">
+        <div class="np-text">
+          <div class="np-title-row">
+            <h1 class="np-title" id="npTitle">KAZAM</h1>
+          </div>
+          <p class="np-artist" id="npArtist" title="点击搜索该歌手">搜一首歌开始吧</p>
+        </div>
+        <div class="np-tags">
+          <span class="tag" id="npQuality" hidden></span>
+          <span class="tag admin-only" id="npCached" hidden>已缓存</span>
+        </div>
       </div>
-      <div class="np-tags">
-        <span class="tag" id="npQuality" hidden></span>
-        <span class="tag admin-only" id="npCached" hidden>已缓存</span>
+
+      <div class="progress">
+        <div class="bar" id="progTrack" role="slider" tabindex="0" aria-label="播放进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div class="bar-buf" id="progBuf"></div>
+          <div class="bar-fill" id="progFill"></div>
+          <span class="bar-HoverTip" id="progTip" hidden>0:00</span>
+        </div>
+        <div class="times"><span id="timeCur">0:00</span><span id="timeTot">0:00</span></div>
       </div>
-    </div>
-    <div class="progress">
-      <div class="bar" id="progTrack" role="slider" tabindex="0" aria-label="播放进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-        <div class="bar-buf" id="progBuf"></div>
-        <div class="bar-fill" id="progFill"></div>
+
+      <div class="controls">
+        <button type="button" class="icon-btn" id="btnMode" aria-label="播放方式：列表循环" title="列表循环"><svg class="icon"><use href="#i-repeat"/></svg></button>
+        <button type="button" class="icon-btn big" id="btnPrev" aria-label="上一首" title="上一首 (←)"><svg class="icon"><use href="#i-prev"/></svg></button>
+        <button type="button" class="play" id="btnPlay" aria-label="播放" title="播放 / 暂停 (Space)">
+          <svg class="icon"><use href="#i-play"/></svg>
+        </button>
+        <button type="button" class="icon-btn big" id="btnNext" aria-label="下一首" title="下一首 (→)"><svg class="icon"><use href="#i-next"/></svg></button>
+        <button type="button" class="icon-btn" id="btnLyrics" aria-label="歌词" title="歌词视图 (L)"><svg class="icon"><use href="#i-lyrics"/></svg></button>
       </div>
-      <div class="times"><span id="timeCur">0:00</span><span id="timeTot">0:00</span></div>
-    </div>
-    <div class="controls">
-      <button type="button" class="icon-btn" id="btnMode" aria-label="播放方式：列表循环" title="列表循环"><svg class="icon"><use href="#i-repeat"/></svg></button>
-      <button type="button" class="icon-btn big" id="btnPrev" aria-label="上一首"><svg class="icon"><use href="#i-prev"/></svg></button>
-      <button type="button" class="play" id="btnPlay" aria-label="播放"><svg class="icon"><use href="#i-play"/></svg></button>
-      <button type="button" class="icon-btn big" id="btnNext" aria-label="下一首"><svg class="icon"><use href="#i-next"/></svg></button>
-      <button type="button" class="icon-btn" id="btnLyrics" aria-label="歌词" title="歌词"><svg class="icon"><use href="#i-lyrics"/></svg></button>
-    </div>
-    <div class="stage-row">
-      <div class="volume" id="volume">
-        <button type="button" class="icon-btn small" id="btnVol" aria-label="静音"><svg class="icon"><use href="#i-volume"/></svg></button>
-        <input type="range" id="volSlider" min="0" max="100" value="70" step="1" aria-label="音量">
+
+      <div class="stage-row">
+        <div class="volume" id="volume">
+          <button type="button" class="icon-btn small" id="btnVol" aria-label="静音" title="静音 (M)"><svg class="icon"><use href="#i-volume"/></svg></button>
+          <input type="range" id="volSlider" min="0" max="100" value="70" step="1" aria-label="音量">
+        </div>
+        <label class="level" title="选择音频解析音质">
+          <span class="sr-only">音质</span>
+          <select id="audioLevel" aria-label="音质">
+            <option value="standard">标准 128k</option>
+            <option value="higher">较高 192k</option>
+            <option value="exhigh" selected>极高 320k</option>
+            <option value="lossless">无损 FLAC</option>
+            <option value="hires">Hi-Res 金标</option>
+            <option value="jymaster">臻品母带</option>
+          </select>
+        </label>
       </div>
-      <label class="level">
-        <span class="sr-only">音质</span>
-        <select id="audioLevel" aria-label="音质">
-          <option value="standard">标准</option>
-          <option value="higher">较高</option>
-          <option value="exhigh" selected>极高 320k</option>
-          <option value="lossless">无损 FLAC</option>
-          <option value="hires">Hi-Res</option>
-          <option value="jymaster">臻品母带</option>
-        </select>
-      </label>
-    </div>
-    <div class="np-actions" id="npActions" hidden>
-      <button type="button" class="ghost" id="btnDlSong"><svg class="icon"><use href="#i-download"/></svg><span>下载</span></button>
-      <button type="button" class="ghost" id="btnDlLyric"><svg class="icon"><use href="#i-file"/></svg><span>歌词</span></button>
-      <button type="button" class="ghost" id="btnShare"><svg class="icon"><use href="#i-share"/></svg><span>分享</span></button>
-      <button type="button" class="ghost admin-only" id="btnCopyUrl"><svg class="icon"><use href="#i-link"/></svg><span>地址</span></button>
-      <button type="button" class="ghost admin-only" id="btnCacheSong"><svg class="icon"><use href="#i-cloud"/></svg><span>缓存</span></button>
+
+      <div class="np-actions" id="npActions" hidden>
+        <button type="button" class="ghost" id="btnDlSong"><svg class="icon"><use href="#i-download"/></svg><span>下载音频</span></button>
+        <button type="button" class="ghost" id="btnDlLyric"><svg class="icon"><use href="#i-file"/></svg><span>下载歌词</span></button>
+        <button type="button" class="ghost" id="btnShare"><svg class="icon"><use href="#i-share"/></svg><span>分享</span></button>
+        <button type="button" class="ghost admin-only" id="btnCopyUrl"><svg class="icon"><use href="#i-link"/></svg><span>流地址</span></button>
+        <button type="button" class="ghost admin-only" id="btnCacheSong"><svg class="icon"><use href="#i-cloud"/></svg><span>缓存入库</span></button>
+      </div>
     </div>
   </section>
 
   <section class="panel" aria-label="歌曲列表">
     <div class="panel-head">
       <div class="tabs" role="tablist">
-        <button type="button" role="tab" data-view="search" aria-selected="true">搜索</button>
+        <button type="button" role="tab" data-view="search" aria-selected="true">探索 / 搜索</button>
         <button type="button" role="tab" data-view="playlist" aria-selected="false">我的列表<i id="countMy"></i></button>
         <button type="button" role="tab" data-view="radio" aria-selected="false">今日电台<i id="countRadio"></i></button>
-        <button type="button" role="tab" data-view="lyrics" aria-selected="false">歌词</button>
-        <button type="button" role="tab" data-view="library" aria-selected="false" class="admin-only">曲库</button>
+        <button type="button" role="tab" data-view="lyrics" aria-selected="false">同步歌词</button>
+        <button type="button" role="tab" data-view="library" aria-selected="false" class="admin-only">云端曲库</button>
       </div>
       <div class="panel-tools">
+        <div class="filter-box" data-for="playlist radio library" hidden>
+          <svg class="icon"><use href="#i-search"/></svg>
+          <input type="search" id="listFilter" placeholder="筛选列表…" autocomplete="off" aria-label="筛选当前列表">
+        </div>
         <button type="button" class="tool" data-for="playlist" id="btnImportPl" title="从 JSON 文件导入"><svg class="icon"><use href="#i-upload"/></svg><span>导入</span></button>
         <div class="tool-wrap" data-for="playlist radio">
           <button type="button" class="tool" id="btnExportPl" aria-haspopup="menu" aria-expanded="false"><svg class="icon"><use href="#i-download"/></svg><span>导出</span></button>
           <div class="pop" id="exportMenu" role="menu" hidden>
-            <button type="button" role="menuitem" data-export="json">JSON（可再导入）</button>
+            <button type="button" role="menuitem" data-export="json">JSON 备份（可再导入）</button>
             <button type="button" role="menuitem" data-export="m3u">M3U 播放列表</button>
-            <button type="button" role="menuitem" data-export="txt">纯文本</button>
+            <button type="button" role="menuitem" data-export="txt">纯文本曲目单</button>
           </div>
         </div>
         <button type="button" class="tool" data-for="playlist" id="btnClearPl"><svg class="icon"><use href="#i-trash"/></svg><span>清空</span></button>

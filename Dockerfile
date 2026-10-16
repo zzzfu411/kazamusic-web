@@ -17,7 +17,7 @@ ENV HOST=0.0.0.0 \
     PORT=8080 \
     TRUST_PROXY=true \
     CACHE_DIR=/app/data/cache \
-    PUBLIC_BASE_URL=http://127.0.0.1:8080
+    PUBLIC_BASE_URL=https://music.yeuxark.com
 
 EXPOSE 8080
 

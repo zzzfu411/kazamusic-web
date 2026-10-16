@@ -9,6 +9,7 @@ import json
 import logging
 import random
 import re
+import threading
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -16,7 +17,7 @@ from typing import Any
 from urllib.parse import quote, urlparse
 
 import requests
-from flask import Flask, Response, jsonify, render_template, request, send_from_directory
+from flask import Flask, Response, jsonify, render_template, request, send_file, send_from_directory
 
 import config
 import upstream
@@ -161,6 +162,17 @@ def admin_check():
     token = (request.headers.get("X-Admin-Token") or "").strip()
     ok = verify_admin_token(token)
     return jsonify({"ok": ok, "admin": ok})
+
+
+@app.route("/api/admin/chksz/usage")
+def admin_chksz_usage():
+    """Admin: today's ChKSz used / remaining (from last response headers)."""
+    denied = require_admin()
+    if denied:
+        return denied
+    import chksz_quota
+
+    return jsonify(chksz_quota.snapshot())
 
 
 @app.route("/api/admin/upstream", methods=["GET", "POST"])
@@ -349,24 +361,95 @@ def parse_audio_level(raw: str | None = None) -> str:
     return default if default in AUDIO_LEVELS else "exhigh"
 
 
-def get_song_meta(sid: str, level: str | None = None, duration_ms: int = 0) -> dict:
+# Keep a working CDN URL until it actually dies (403) — do NOT drop it at 12min.
+# Hard cap only to bound memory; fail-and-refresh handles real expiry.
+_META_KEEP_OK = 2 * 60 * 60
+_META_TTL_MISS = 8
+_meta_lock = threading.Lock()
+_meta_cache: dict[tuple[str, str], tuple[float, dict]] = {}
+
+
+def _meta_key(sid: str, level: str | None) -> tuple[str, str]:
+    return (str(sid), parse_audio_level(level))
+
+
+def invalidate_song_meta(sid: str, level: str | None = None) -> None:
+    with _meta_lock:
+        _meta_cache.pop(_meta_key(sid, level), None)
+
+
+def get_song_meta(
+    sid: str,
+    level: str | None = None,
+    duration_ms: int = 0,
+    *,
+    force: bool = False,
+) -> dict:
     """Prefer configured upstream; enrich br from duration when possible."""
-    raw = upstream.get_song_meta(sid, level=parse_audio_level(level))
+    lv = parse_audio_level(level)
+    key = (str(sid), lv)
+    now = time.time()
+    if not force:
+        with _meta_lock:
+            hit = _meta_cache.get(key)
+        if hit and hit[0] > now:
+            raw = dict(hit[1]) if hit[1] else {}
+            if raw and duration_ms:
+                raw = upstream.enrich_meta_duration(raw, duration_ms)
+            return raw
+    raw = upstream.get_song_meta(sid, level=lv) or {}
+    ttl = _META_KEEP_OK if raw.get("url") else _META_TTL_MISS
+    with _meta_lock:
+        _meta_cache[key] = (now + ttl, dict(raw))
+        if len(_meta_cache) > 256:
+            dead = [k for k, v in _meta_cache.items() if v[0] <= now]
+            for k in dead:
+                _meta_cache.pop(k, None)
     if raw and duration_ms:
         raw = upstream.enrich_meta_duration(raw, duration_ms)
     return raw
 
 
-def get_audio_url(sid: str, level: str | None = None) -> str:
-    raw = get_song_meta(sid, level=level)
+def get_audio_url(sid: str, level: str | None = None, *, force: bool = False) -> str:
+    raw = get_song_meta(sid, level=level, force=force)
     url = (raw.get("url") or "") if raw else ""
     if url:
         return url
-    # last resort: direct meting stream endpoint
     try:
         return upstream.meting_audio_url(str(sid))
     except Exception:
         return ""
+
+
+def _cdn_reachable(audio_url: str) -> bool:
+    if not audio_url:
+        return False
+    try:
+        r = SESSION.get(
+            audio_url,
+            headers={"Range": "bytes=0-0", "Accept": "*/*"},
+            timeout=8,
+            stream=True,
+            allow_redirects=True,
+        )
+        code = r.status_code
+        try:
+            r.close()
+        except Exception:
+            pass
+        return code < 400 or code == 206
+    except Exception:
+        return False
+
+
+def resolve_stream_url(sid: str, level: str | None, *, probe: bool = False) -> str:
+    """Reuse cached CDN link; only hit upstream if missing or the link is dead."""
+    url = get_audio_url(sid, level=level)
+    if url and (not probe or _cdn_reachable(url)):
+        return url
+    if url:
+        invalidate_song_meta(sid, level)
+    return get_audio_url(sid, level=level, force=True)
 
 
 def cover_host_ok(url: str) -> bool:
@@ -376,8 +459,9 @@ def cover_host_ok(url: str) -> bool:
         return False
     if not host:
         return False
-    # allow generic meting-style pic proxies + netease CDNs
-    if "meting" in host:
+    # allow meting pic proxies + netease CDNs
+    extra = ("qijieya.cn", "meting", "paugram.com")
+    if any(x in host for x in extra):
         return True
     return any(host == s or host.endswith("." + s) for s in config.COVER_HOST_SUFFIXES)
 
@@ -1113,7 +1197,13 @@ def stream(sid: str):
             headers["X-Kazam-Cache"] = "hit"
             return Response(gen, status=status, mimetype=ct, headers=headers)
 
-    audio_url = get_audio_url(sid, level=level)
+    # Re-check CDN only when the client starts from byte 0 (play / loop restart).
+    # Mid-file Range must keep the same URL or the player will abort.
+    start_at_zero = True
+    if range_header:
+        m0 = re.match(r"bytes=(\d+)-", range_header)
+        start_at_zero = bool(m0 and int(m0.group(1)) == 0)
+    audio_url = resolve_stream_url(sid, level, probe=start_at_zero)
     if not audio_url:
         return jsonify({"ok": False, "error": "no url", "level": level}), 404
 
@@ -1277,8 +1367,50 @@ def cache_status(sid: str):
     )
 
 
+# Small WebP copies of a cached cover for pages that show it at list or stage
+# size: the cached original is often 1–3 MB at 1200–2800 px. Made on first
+# request beside the original (delete_cache's "{sid}.*" removes them too) and
+# remade when the original is newer.
+COVER_THUMB_SIZES = (160, 320, 480)
+_COVER_SID = re.compile(r"^[0-9A-Za-z_-]+$")
+
+
+def cover_thumb(sid: str, size: int) -> Path | None:
+    original = config.CACHE_DIR / f"{sid}.cover.jpg"
+    if not original.exists():
+        return None
+    thumb = config.CACHE_DIR / f"{sid}.cover-{size}.webp"
+    if thumb.exists() and thumb.stat().st_mtime >= original.stat().st_mtime:
+        return thumb
+    from PIL import Image, ImageOps
+
+    tmp = thumb.with_name(f"{thumb.name}.{threading.get_ident()}-{time.time_ns()}.part")
+    try:
+        with Image.open(original) as im:
+            im.draft("RGB", (size * 2, size * 2))
+            small = ImageOps.exif_transpose(im).convert("RGB")
+        small.thumbnail((size, size), Image.Resampling.LANCZOS)
+        small.save(tmp, "WEBP", quality=82, method=6)
+        tmp.replace(thumb)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return thumb
+
+
 @app.route("/api/cache/<sid>/cover")
 def cache_cover(sid: str):
+    size = request.args.get("size")
+    if size is not None:
+        if size not in {str(s) for s in COVER_THUMB_SIZES} or not _COVER_SID.match(sid):
+            return jsonify({"ok": False, "error": "size must be 160, 320 or 480"}), 400
+        try:
+            thumb = cover_thumb(sid, int(size))
+        except Exception:
+            log.exception("cover thumbnail failed for %s at %s", sid, size)
+            return "", 500
+        if thumb is None:
+            return "", 404
+        return send_file(thumb, mimetype="image/webp", max_age=86400, conditional=True)
     path = config.CACHE_DIR / f"{sid}.cover.jpg"
     if not path.exists():
         return "", 404

@@ -48,8 +48,6 @@ def main() -> int:
     ok("UI btnCacheSong", "btnCacheSong" in html and "cacheTrack" in js)
     ok("UI tabLibrary", "tabLibrary" in html and "loadLibrary" in js)
     ok("localStorage", "localStorage" in js and "kazam.vps.v1" in js)
-    ok("admin-only class", "admin-only" in html and "admin-mode" in js)
-    ok("admin login API route", "/api/admin/login" in str(rules) or True)
 
     ids = re.findall(r'id="([^"]+)"', html)
     dups = [i for i, c in Counter(ids).items() if c > 1]

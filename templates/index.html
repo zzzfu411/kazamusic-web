@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>KAZAM · music.yeuxark.com</title>
 <link rel="icon" href="/favicon.ico">
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css?v=20260823osc5">
 <script>window.KAZAM_PUBLIC_BASE = {{ public_base|tojson }};</script>
 <!-- 防闪白：尽早应用主题 -->
 <script>
@@ -20,7 +20,7 @@
     }
     document.documentElement.setAttribute("data-theme", t);
     var m = document.getElementById("metaThemeColor");
-    if (m) m.setAttribute("content", t === "dark" ? "#000000" : "#facc15");
+    if (m) m.setAttribute("content", t === "dark" ? "#030304" : "#facc15");
   } catch (e) {}
 })();
 </script>
@@ -51,6 +51,7 @@
       <button type="button" id="btnResolve" title="粘贴 ID/链接">✨ 解析</button>
       <button type="button" id="btnLoadPl" title="导入网易云歌单到「我的列表」">📂 歌单</button>
       <button type="button" id="btnUpstream" class="admin-only" title="选择上游 API">上游</button>
+      <span class="quota-chip admin-only" id="chkszQuota" title="ChKSz 今日额度（点刷新）">今日已用 -- / 剩余 --</span>
       <button type="button" id="btnAdminExit" class="admin-only" title="退出管理员">退出</button>
     </div>
   </div>
@@ -110,9 +111,16 @@
       <span id="rpTitle">搜 索 结 果</span>
       <span id="rpCount">—</span>
       <div class="tools" id="rpTools">
-        <button type="button" id="btnClearPl">清空自选</button>
-        <button type="button" id="btnExportPl">导出</button>
-        <button type="button" id="btnImportPl">导入</button>
+        <button type="button" id="btnClearPl" style="display:none">清空自选</button>
+        <div class="export-wrap" id="exportWrap" style="display:none">
+          <button type="button" id="btnExportPl" aria-haspopup="true" aria-expanded="false">导出</button>
+          <div class="export-menu" id="exportMenu" hidden role="menu">
+            <button type="button" data-export="json" role="menuitem">JSON</button>
+            <button type="button" data-export="m3u" role="menuitem">M3U</button>
+            <button type="button" data-export="txt" role="menuitem">文本</button>
+          </div>
+        </div>
+        <button type="button" id="btnImportPl" style="display:none">导入</button>
         <button type="button" id="btnReloadRadio" style="display:none">刷新电台</button>
         <button type="button" id="btnClearRadio" style="display:none">清空电台</button>
         <button type="button" id="btnRefreshLib" class="admin-only">刷新库</button>
@@ -139,6 +147,11 @@
       <button type="button" id="upBtnProbe" class="up-btn primary">⚡ 测速 / 测活</button>
       <button type="button" id="upBtnShowAdd" class="up-btn">＋ 添加源</button>
       <span class="up-status" id="upProbeStatus">尚未测速</span>
+    </div>
+    <div class="up-quota" id="upQuotaBox">
+      <span class="up-quota-label">ChKSz 额度</span>
+      <strong id="upQuotaText">今日已用 -- / 剩余 --</strong>
+      <button type="button" class="up-btn" id="upQuotaRefresh" title="读取最近一次请求头里的额度">刷新</button>
     </div>
     <div class="up-add-form" id="upAddForm" hidden>
       <div class="up-add-row">
@@ -177,6 +190,6 @@
   </div>
 </div>
 
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=20260823osc5"></script>
 </body>
 </html>

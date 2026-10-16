@@ -5,13 +5,15 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
-    env_file:
-      - .env
     environment:
       HOST: "0.0.0.0"
       PORT: "8080"
+      PUBLIC_BASE_URL: "https://music.yeuxark.com"
+      CORS_ORIGINS: "https://yeuxark.com,https://www.yeuxark.com,https://music.yeuxark.com"
+      AUDIO_LEVEL: "exhigh"
       TRUST_PROXY: "true"
       CACHE_DIR: "/app/data/cache"
+      LOG_LEVEL: "INFO"
     volumes:
       - kazam_cache:/app/data/cache
     healthcheck:

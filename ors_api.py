@@ -1,7 +1,7 @@
 """
-Client for ORS-style music-api (endpoint from env / admin source).
+Client for music.ors.de5.net (music-api).
 
-Protocol (relative to configured base):
+Official docs (https://music.ors.de5.net/docs):
 
   GET /search?source=qq|kg|kw|mg&keyword=&limit=
   GET /lx/api/?source=&songmid=&quality=&name=&singer=&interval=&albumName=
@@ -12,7 +12,14 @@ Protocol (relative to configured base):
 
 quality: flac | 320k | hires | master
 
+响应字段:
+  url:      /play/<链接>
+  picture:  图片 (data URI)
+  lrc:      歌词文本
+  ext:      格式
+
 Platforms: qq / kg / kw / mg(migu)
+Note: Cloudflare may block datacenter IPs.
 """
 from __future__ import annotations
 
@@ -25,16 +32,7 @@ import requests
 
 log = logging.getLogger("kazam.ors")
 
-def _env_base() -> str:
-    try:
-        import config
-
-        return (config.env("ORS_API", "") or "").rstrip("/")
-    except Exception:
-        return ""
-
-
-DEFAULT_BASE = _env_base()
+DEFAULT_BASE = "https://music.ors.de5.net"
 SOURCES = ("qq", "kg", "kw", "mg")
 SOURCE_ALIASES = {
     "qq": "qq",
@@ -127,10 +125,7 @@ SESSION = _session()
 
 
 def _base(endpoint: str | None) -> str:
-    root = (endpoint or DEFAULT_BASE or "").rstrip("/")
-    if not root:
-        raise RuntimeError("ORS endpoint not configured (set ORS_API or add an ors source)")
-    return root
+    return (endpoint or DEFAULT_BASE).rstrip("/")
 
 
 def _abs_url(base: str | None, path_or_url: str) -> str:

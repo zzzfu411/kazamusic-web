@@ -28,11 +28,13 @@ SESSION.headers.update(
     }
 )
 
-# Env fallback only used if runtime sources empty (no hardcoded hosts)
+# Env fallback only used if runtime sources empty
 _ENV_METING = [
     b.rstrip("/") + "/"
-    for b in config.env_list("METING_APIS", config.METING_APIS or "")
-    if b.strip()
+    for b in config.env_list(
+        "METING_APIS",
+        "https://api.qijieya.cn/meting/",
+    )
 ]
 
 
@@ -46,14 +48,12 @@ def _active_sources() -> list[dict[str, Any]]:
     try:
         return _rt().list_sources(enabled_only=True)
     except Exception:
-        if not _ENV_METING:
-            return []
         return [
             {
-                "id": "meting",
+                "id": "meting_qijieya",
                 "name": "Meting",
                 "kind": "meting",
-                "endpoint": _ENV_METING[0],
+                "endpoint": _ENV_METING[0] if _ENV_METING else "https://api.qijieya.cn/meting/",
             }
         ]
 
@@ -121,17 +121,44 @@ def _id_from_meting_url(url: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _chksz_apikey(src: dict | None = None) -> str:
+    if src:
+        raw = str(src.get("apikey") or src.get("api_key") or "").strip()
+        if raw:
+            return raw
+    return (config.CHKSZ_API_KEY or "").strip()
+
+
 def chksz_get(
     path: str,
     params: dict | None = None,
     timeout: float = 8,
     base: str | None = None,
+    apikey: str | None = None,
 ) -> dict:
+    """
+    ChKSz API: GET {base}/163_music|163_search|163_lyric|163_playlist
+    Official host is https://api.chksz.com/api and requires ?apikey=
+    """
     root = (base or _chksz_endpoint()).rstrip("/")
     url = f"{root}{path if path.startswith('/') else '/' + path}"
-    r = SESSION.get(url, params=params or {}, timeout=timeout)
+    q = dict(params or {})
+    key = (apikey or "").strip() or _chksz_apikey()
+    if key and not q.get("apikey"):
+        q["apikey"] = key
+    r = SESSION.get(url, params=q, timeout=timeout)
+    try:
+        import chksz_quota
+
+        chksz_quota.ingest_response(r.headers, counted=True)
+    except Exception:
+        pass
     r.raise_for_status()
-    return r.json()
+    try:
+        return r.json()
+    except Exception:
+        snippet = (r.text or "")[:160]
+        raise RuntimeError(f"chksz non-json: {snippet}") from None
 
 
 def _looks_like_lrc(text: str) -> bool:
@@ -196,10 +223,7 @@ def meting_get(
 
 def meting_audio_url(sid: str, br: int = 320, base: str | None = None) -> str:
     """Stable proxy URL that streams audio via Meting (works overseas)."""
-    candidates = [base] if base else (_meting_bases_for()[:1] or list(_ENV_METING))
-    b = (candidates[0] if candidates else "") or ""
-    if not b:
-        raise RuntimeError("no meting endpoint configured")
+    b = base or (_meting_bases_for()[:1] or _ENV_METING or ["https://api.qijieya.cn/meting/"])[0]
     if not b.endswith("/"):
         b += "/"
     return f"{b}?server=netease&type=url&id={sid}&br={int(br) or 320}"
@@ -234,7 +258,7 @@ def _provider() -> str:
     try:
         return _rt().get_upstream()
     except Exception:
-        return "auto"
+        return "meting_qijieya"
 
 
 def _chksz_timeout(provider: str | None = None) -> float:
@@ -400,7 +424,7 @@ def search_songs(keyword: str, limit: int = 30) -> list[dict]:
     src = _source_by_id(provider)
     if not src:
         # legacy
-        if provider in ("meting",):
+        if provider in ("meting", "meting_qijieya"):
             try:
                 return _search_meting(keyword, limit)
             except Exception as e:
@@ -466,7 +490,7 @@ def _resolve_audio_url(play_url: str, timeout: float = 12) -> tuple[str, dict[st
         except Exception:
             pass
         # If still on meting proxy with empty/html, try explicit no-follow Location
-        if "meting" in final:
+        if "meting" in final or "qijieya" in final:
             try:
                 r2 = SESSION.get(
                     play_url, timeout=timeout, allow_redirects=False, stream=True
@@ -708,12 +732,16 @@ def get_song_meta(sid: str, level: str | None = None) -> dict:
         import ors_api
 
         if ors_api.parse_sid(sid):
+            # find any enabled ors source, else default endpoint
             ors_src = next(
                 (s for s in _active_sources() if s.get("kind") == "ors"),
-                None,
+                {
+                    "id": "ors_de5",
+                    "kind": "ors",
+                    "endpoint": "https://music.ors.de5.net",
+                    "platform": "qq",
+                },
             )
-            if not ors_src:
-                return {}
             return _meta_ors(sid, src=ors_src, level=level)
     except Exception as e:
         log.debug("ors sid detect: %s", e)
@@ -836,10 +864,12 @@ def get_lyric(sid: str) -> dict:
         if ors_api.parse_sid(sid):
             ors_src = next(
                 (s for s in _active_sources() if s.get("kind") == "ors"),
-                None,
+                {
+                    "id": "ors_de5",
+                    "kind": "ors",
+                    "endpoint": "https://music.ors.de5.net",
+                },
             )
-            if not ors_src:
-                return empty
             return run_one(ors_src) or empty
     except Exception:
         pass
@@ -1266,7 +1296,7 @@ def probe_all(sid: str = "416892104", keyword: str = "晴天") -> dict[str, Any]
             else (
                 min(alive, key=lambda x: x.get("ms") or 99999)["id"]
                 if alive
-                else "auto"
+                else "meting_qijieya"
             )
         ),
         "catalog": _rt().catalog_for_ui(),

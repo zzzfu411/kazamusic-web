@@ -14,17 +14,104 @@ import config
 _LOCK = threading.Lock()
 _PATH = config.CACHE_DIR.parent / "runtime.json"
 
-# No public third-party endpoints shipped in this repo.
-# Add sources via admin UI or .env (UPSTREAM_API / METING_APIS).
-BUILTIN_SOURCES: list[dict[str, Any]] = []
-CATALOG: list[dict[str, Any]] = []
+# Built-in third-party sources (not NetEase official).
+# Verified from JP Azure VPS on 2026-08-08:
+#   - api.qijieya.cn/meting  : url/song/lrc/search OK
+#   - api.injahow.cn/meting  : url/song/lrc OK (no search type)
+#   - api.chksz.top          : often timeout overseas
+BUILTIN_SOURCES: list[dict[str, Any]] = [
+    {
+        "id": "chksz",
+        "name": "chksz",
+        "kind": "chksz",
+        "endpoint": config.UPSTREAM_API.rstrip("/"),
+        "desc": "api.chksz.com — 需 CHKSZ_API_KEY，支持臻品母带",
+        "builtin": True,
+        "enabled": True,
+    },
+    {
+        "id": "meting_qijieya",
+        "name": "Meting · 祈杰",
+        "kind": "meting",
+        "endpoint": "https://api.qijieya.cn/meting/",
+        "desc": "完整 Meting（搜索/歌词/音频），海外可用",
+        "builtin": True,
+        "enabled": True,
+    },
+    {
+        "id": "meting_injahow",
+        "name": "Meting · injahow",
+        "kind": "meting",
+        "endpoint": "https://api.injahow.cn/meting/",
+        "desc": "官方 Meting-API 演示站（无 search 类型）",
+        "builtin": True,
+        "enabled": True,
+    },
+    {
+        "id": "ors_de5",
+        "name": "ORS 无损 · de5",
+        "kind": "ors",
+        "endpoint": "https://music.ors.de5.net",
+        "desc": "QQ/酷狗/酷我/咪咕 无损解析（CF 代理；机房 IP 可能被拦）",
+        "platform": "qq",
+        "builtin": True,
+        "enabled": True,
+    },
+]
+
+# Suggested extras (not auto-enabled; admin can one-click add)
+CATALOG: list[dict[str, Any]] = [
+    {
+        "id": "meting_qijieya",
+        "name": "Meting · 祈杰",
+        "kind": "meting",
+        "endpoint": "https://api.qijieya.cn/meting/",
+        "desc": "完整协议 + 搜索，JP VPS 实测可用",
+    },
+    {
+        "id": "meting_injahow",
+        "name": "Meting · injahow",
+        "kind": "meting",
+        "endpoint": "https://api.injahow.cn/meting/",
+        "desc": "injahow/meting-api 公共实例",
+    },
+    {
+        "id": "chksz",
+        "name": "chksz",
+        "kind": "chksz",
+        "endpoint": "https://api.chksz.com/api",
+        "desc": "官方文档 api.chksz.com — 需 apikey",
+    },
+    {
+        "id": "meting_paugram_note",
+        "name": "（参考）paugram netease",
+        "kind": "meting",
+        "endpoint": "https://api.paugram.com/netease/",
+        "desc": "协议不同（非标准 Meting），仅作目录提示，不建议直接加",
+        "disabled_add": True,
+    },
+    {
+        "id": "ors_de5",
+        "name": "ORS 无损 · de5",
+        "kind": "ors",
+        "endpoint": "https://music.ors.de5.net",
+        "desc": "文档 https://music.ors.de5.net/docs — QQ/kg/kw/mg，音频走 CF",
+        "platform": "qq",
+    },
+]
 
 DEFAULTS: dict[str, Any] = {
-    "upstream": "auto",
-    "sources": None,
+    # Prefer working overseas source
+    "upstream": "meting_qijieya",
+    "sources": None,  # filled on first read
 }
 
-_LEGACY_MAP: dict[str, str] = {}
+# Legacy id aliases → modern source id
+_LEGACY_MAP = {
+    "meting": "meting_qijieya",
+    "qijieya": "meting_qijieya",
+    "injahow": "meting_injahow",
+}
 
 
 def _norm_endpoint(url: str, kind: str) -> str:
@@ -73,71 +160,8 @@ def _slug_id(name: str, kind: str) -> str:
     return base[:40]
 
 
-def _sources_from_env() -> list[dict[str, Any]]:
-    """Optional bootstrap from .env only — no hardcoded public hosts."""
-    out: list[dict[str, Any]] = []
-    chksz = (config.UPSTREAM_API or "").strip()
-    if chksz:
-        try:
-            ep = _norm_endpoint(chksz, "chksz")
-        except ValueError:
-            ep = ""
-        if ep:
-            out.append(
-                {
-                    "id": "chksz",
-                    "name": "chksz",
-                    "kind": "chksz",
-                    "endpoint": ep,
-                    "desc": "from UPSTREAM_API",
-                    "builtin": True,
-                    "enabled": True,
-                }
-            )
-    for i, raw in enumerate(config.env_list("METING_APIS", config.METING_APIS or "")):
-        raw = (raw or "").strip()
-        if not raw:
-            continue
-        try:
-            ep = _norm_endpoint(raw, "meting")
-        except ValueError:
-            continue
-        sid = "meting" if i == 0 else f"meting_{i + 1}"
-        out.append(
-            {
-                "id": sid,
-                "name": f"Meting {i + 1}" if i else "Meting",
-                "kind": "meting",
-                "endpoint": ep,
-                "desc": "from METING_APIS",
-                "builtin": True,
-                "enabled": True,
-            }
-        )
-    ors = (config.env("ORS_API", "") or "").strip()
-    if ors:
-        try:
-            ep = _norm_endpoint(ors, "ors")
-        except ValueError:
-            ep = ""
-        if ep:
-            out.append(
-                {
-                    "id": "ors",
-                    "name": "ORS",
-                    "kind": "ors",
-                    "endpoint": ep,
-                    "desc": "from ORS_API",
-                    "platform": "qq",
-                    "builtin": True,
-                    "enabled": True,
-                }
-            )
-    return out
-
-
 def _default_sources() -> list[dict[str, Any]]:
-    return _sources_from_env() or [dict(s) for s in BUILTIN_SOURCES]
+    return [dict(s) for s in BUILTIN_SOURCES]
 
 
 def _migrate(data: dict[str, Any]) -> dict[str, Any]:
@@ -195,7 +219,7 @@ def _migrate(data: dict[str, Any]) -> dict[str, Any]:
             seen.add(b["id"])
     out["sources"] = cleaned
 
-    cur = str(out.get("upstream") or "auto").strip().lower()
+    cur = str(out.get("upstream") or "meting_qijieya").strip().lower()
     cur = _LEGACY_MAP.get(cur, cur)
     valid_ids = {s["id"] for s in cleaned} | {"auto"}
     if cur not in valid_ids:
@@ -251,13 +275,13 @@ def get_source(sid: str) -> dict[str, Any] | None:
 
 
 def get_upstream() -> str:
-    val = str(get_all().get("upstream") or "auto").strip().lower()
+    val = str(get_all().get("upstream") or "meting_qijieya").strip().lower()
     val = _LEGACY_MAP.get(val, val)
     if val == "auto":
         return "auto"
     if get_source(val):
         return val
-    return "auto"
+    return "meting_qijieya"
 
 
 def set_upstream(provider: str) -> str:

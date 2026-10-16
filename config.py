@@ -41,14 +41,19 @@ def env_list(key: str, default: str = "") -> list[str]:
 
 HOST = env("HOST", "0.0.0.0")
 PORT = int(env("PORT", "8080"))
-PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
+PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", "https://music.yeuxark.com").rstrip("/")
 CORS_ORIGINS = env_list(
     "CORS_ORIGINS",
-    "http://127.0.0.1:8080",
+    "https://yeuxark.com,https://www.yeuxark.com,https://music.yeuxark.com",
 )
-# No built-in third-party endpoints. Set in .env or add sources in admin UI.
-UPSTREAM_API = env("UPSTREAM_API", "").rstrip("/")
-METING_APIS = env("METING_APIS", "")
+# ChKSz official API (https://api.chksz.com/#apis) — requires CHKSZ_API_KEY
+UPSTREAM_API = env("UPSTREAM_API", "https://api.chksz.com/api").rstrip("/")
+CHKSZ_API_KEY = env("CHKSZ_API_KEY", "")
+# Meting fallback(s), comma-separated — used when UPSTREAM_API is unreachable (e.g. overseas VPS)
+METING_APIS = env(
+    "METING_APIS",
+    "https://api.qijieya.cn/meting/",
+)
 AUDIO_LEVEL = env("AUDIO_LEVEL", "exhigh")
 LOG_LEVEL = env("LOG_LEVEL", "INFO")
 TRUST_PROXY = env_bool("TRUST_PROXY", True)
@@ -59,10 +64,10 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 # Max concurrent cache size soft limit (0 = unlimited)
 CACHE_MAX_SONGS = int(env("CACHE_MAX_SONGS", "0"))
 
-# Admin gate (copy stream URL / server cache). MUST set in production .env
+# Admin gate (copy stream URL / server cache). Change in production .env
 ADMIN_PASSWORD = env("ADMIN_PASSWORD", "change-me")
 ADMIN_TOKEN_TTL = int(env("ADMIN_TOKEN_TTL", "86400"))  # seconds
-ADMIN_SECRET = env("ADMIN_SECRET", "change-me-to-a-long-random-string")
+ADMIN_SECRET = env("ADMIN_SECRET", "kazam-admin-secret-change-me")
 
 # Cover proxy allowlist (host suffix match)
 COVER_HOST_SUFFIXES = (

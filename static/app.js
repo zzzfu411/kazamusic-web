@@ -37,15 +37,18 @@
     search: $("#searchInput"), searchForm: $("#searchForm"), searchBadge: $("#searchBadge"),
     cover: $("#cover"), coverImg: $("#coverImg"), artA: $("#artA"), artB: $("#artB"),
     npTitle: $("#npTitle"), npArtist: $("#npArtist"), npQuality: $("#npQuality"), npCached: $("#npCached"), npActions: $("#npActions"),
+    npLyricTicker: $("#npLyricTicker"), npLyricLine: $("#npLyricLine"),
+    stageSourceLabel: $("#stageSourceLabel"), vinylModeLabel: $("#vinylModeLabel"),
     prog: $("#progTrack"), progFill: $("#progFill"), progBuf: $("#progBuf"), progTip: $("#progTip"), timeCur: $("#timeCur"), timeTot: $("#timeTot"),
     play: $("#btnPlay"), mode: $("#btnMode"), vol: $("#btnVol"), volSlider: $("#volSlider"), level: $("#audioLevel"),
     mini: $("#mini"), miniCover: $("#miniCover"), miniTitle: $("#miniTitle"), miniArtist: $("#miniArtist"), miniFill: $("#miniFill"), miniPlay: $("#miniPlay"),
     panelBody: $("#panelBody"), panelSub: $("#panelSub"), countMy: $("#countMy"), countRadio: $("#countRadio"), listFilter: $("#listFilter"),
+    panelBatch: $("#panelBatch"), btnPlayAll: $("#btnPlayAll"), btnAddAll: $("#btnAddAll"),
     lyrics: $("#lyrics"), viewLyrics: $("#viewLyrics"), stageLyrics: $("#stageLyrics"),
     menu: $("#rowMenu"), toast: $("#toast"), exportMenu: $("#exportMenu"), exportBtn: $("#btnExportPl"),
     dlg: $("#dlg"), dlgTitle: $("#dlgTitle"), dlgDesc: $("#dlgDesc"), dlgInput: $("#dlgInput"), dlgActions: $("#dlgActions"),
     quota: $("#chkszQuota"), meta: $("#metaThemeColor"),
-    btnVinyl: $("#btnVinylMode"), btnSleep: $("#btnSleep"), sleepBadge: $("#sleepBadge"), btnShortcuts: $("#btnShortcuts"),
+    btnVinyl: $("#btnVinylMode"), btnTheater: $("#btnTheater"), btnSleep: $("#btnSleep"), sleepBadge: $("#sleepBadge"), btnShortcuts: $("#btnShortcuts"),
   };
   var views = {
     search: $("#viewSearch"), playlist: $("#viewPlaylist"), radio: $("#viewRadio"), lyrics: $("#viewLyrics"), library: $("#viewLibrary"),
@@ -72,16 +75,16 @@
   var bag = [], bagKey = "", shuffleHist = [];
   var radioLoading = false;
   var MOODS = [
-    ["流行热歌", "华语流行 · 热门榜单"],
-    ["独立民谣", "吉他叙事 · 温暖治愈"],
-    ["日系动漫", "ACG 原声 · J-Pop"],
-    ["R&B 夜色", "微醺律动 · 深夜电台"],
-    ["爵士咖啡馆", "慵懒萨克斯 · 钢琴三重奏"],
-    ["轻音乐", "专注学习 · 氛围纯音"],
-    ["粤语经典", "港乐黄金年代"],
-    ["电子律动", "Synth · House · 节拍"],
-    ["经典摇滚", "乐队现场 · 失真吉他"],
-    ["影视金曲", "电影与剧集 OST"],
+    ["流行热歌", "华语流行 · 热门榜单", "#f5b942"],
+    ["独立民谣", "吉他叙事 · 温暖治愈", "#34d399"],
+    ["日系动漫", "ACG 原声 · J-Pop", "#fb7185"],
+    ["R&B 夜色", "微醺律动 · 深夜电台", "#a78bfa"],
+    ["爵士咖啡馆", "慵懒萨克斯 · 钢琴三重奏", "#fb923c"],
+    ["轻音乐", "专注学习 · 氛围纯音", "#38bdf8"],
+    ["粤语经典", "港乐黄金年代", "#f472b6"],
+    ["电子律动", "Synth · House · 节拍", "#22d3ee"],
+    ["经典摇滚", "乐队现场 · 失真吉他", "#ef4444"],
+    ["影视金曲", "电影与剧集 OST", "#eab308"],
   ];
 
   // ── helpers ──────────────────────────────────────────────────────────
@@ -315,6 +318,10 @@
     return [name, kbps].filter(Boolean).join(" · ");
   }
 
+  function setStageLyricText(text) {
+    if (el.npLyricLine) el.npLyricLine.textContent = text || "";
+  }
+
   function paintNowPlaying() {
     var t = cur;
     body.classList.toggle("no-track", !t);
@@ -325,6 +332,10 @@
     el.miniTitle.textContent = t ? t.name || String(t.id) : "";
     el.miniArtist.textContent = t ? t.artist || "" : "";
     document.title = t ? (t.name || t.id) + (t.artist ? " · " + t.artist : "") + " — KAZAM" : "KAZAM · 听歌";
+    if (el.stageSourceLabel) {
+      el.stageSourceLabel.textContent = !t ? "STUDIO READY" : S.source === "radio" ? "TODAY RADIO · FM" : "MY PLAYLIST · HI-FI";
+    }
+    if (!t) setStageLyricText("搜一首歌，开启高解析音乐之旅");
     var q = qualityLabel(t);
     el.npQuality.hidden = !q;
     el.npQuality.textContent = q;
@@ -341,6 +352,7 @@
     var p = d > 0 && isFinite(d) ? clamp(t / d, 0, 1) : 0;
     if (!drag.on) {
       el.progFill.style.transform = "scaleX(" + p + ")";
+      el.prog.style.setProperty("--prog", String(p));
       el.timeCur.textContent = fmt(t);
     }
     el.miniFill.style.transform = "scaleX(" + p + ")";
@@ -355,6 +367,7 @@
     var r = el.prog.getBoundingClientRect();
     drag.frac = clamp((e.clientX - r.left) / r.width, 0, 1);
     el.progFill.style.transform = "scaleX(" + drag.frac + ")";
+    el.prog.style.setProperty("--prog", String(drag.frac));
     el.timeCur.textContent = fmt(drag.frac * audio.duration);
   }
   function updateProgTip(e) {
@@ -451,6 +464,7 @@
     lyric.state = "loading";
     renderLyrics();
     el.progFill.style.transform = "scaleX(0)";
+    el.prog.style.setProperty("--prog", "0");
     el.progBuf.style.transform = "scaleX(0)";
     el.timeCur.textContent = "0:00";
     el.timeTot.textContent = fmtMs(cur.duration) || "0:00";
@@ -749,7 +763,7 @@
         }).join("") + "</div></div>";
     }
     var moods = MOODS.map(function (m) {
-      return '<button type="button" class="mood-card" data-kw="' + esc(m[0]) + '">' +
+      return '<button type="button" class="mood-card" style="--mood-color:' + (m[2] || "#f5b942") + '" data-kw="' + esc(m[0]) + '">' +
         "<b>" + esc(m[0]) + "</b><small>" + esc(m[1]) + "</small></button>";
     }).join("");
     return '<div class="discover">' +
@@ -822,6 +836,17 @@
     if (r && sameId(r.getAttribute("data-id"), cur.id)) r.classList.add("current");
   }
 
+  function fmtTotalDuration(list) {
+    var ms = 0;
+    for (var i = 0; i < list.length; i++) ms += Number(list[i].duration) || 0;
+    if (!ms) return "";
+    var mins = Math.round(ms / 60000);
+    if (mins < 1) return "1 分钟内";
+    if (mins < 60) return "共 " + mins + " 分钟";
+    var h = Math.floor(mins / 60), m = mins % 60;
+    return "共 " + h + " 小时" + (m ? " " + m + " 分" : "");
+  }
+
   function updateSub() {
     var text = "";
     if (view === "search") {
@@ -829,15 +854,21 @@
         : search.state === "done" && search.results.length ? search.results.length + " 首 ·「" + search.kw + "」· 点一下就播"
         : "支持直接粘贴网易云单曲链接 / ID 秒级解析播放";
     } else if (view === "playlist") {
-      text = S.playlist.length ? S.playlist.length + " 首" + (isPhone() ? "" : " · 拖动左侧把手排序，Alt + ↑↓ 也可以") : "";
+      var tot = fmtTotalDuration(S.playlist);
+      text = S.playlist.length ? S.playlist.length + " 首" + (tot ? " · " + tot : "") + (isPhone() ? "" : " · 拖动把手或 Alt+↑↓ 排序") : "";
     } else if (view === "radio") {
-      text = S.radio.length ? "今日电台" + (S.radioDate ? " · " + S.radioDate : "") + " · " + S.radio.length + " 首" : "";
+      var rTot = fmtTotalDuration(S.radio);
+      text = S.radio.length ? "今日电台" + (S.radioDate ? " · " + S.radioDate : "") + " · " + S.radio.length + " 首" + (rTot ? " · " + rTot : "") : "";
     } else if (view === "lyrics") {
       text = cur ? (cur.name || cur.id) + (cur.artist ? " — " + cur.artist : "") : "";
     } else if (view === "library") {
       text = library.items.length ? library.items.length + " 首已缓存在服务器" : "";
     }
     el.panelSub.textContent = text;
+    if (el.panelBatch) {
+      var batchList = (view === "search" || view === "radio" || view === "library") ? listFor(view) : [];
+      el.panelBatch.hidden = !batchList.length;
+    }
   }
 
   function setView(v) {
@@ -868,6 +899,53 @@
     el.listFilter.addEventListener("input", function () {
       filterQuery = el.listFilter.value || "";
       if (view === "playlist" || view === "radio" || view === "library") renderView(view);
+    });
+  }
+  if (el.btnPlayAll) {
+    el.btnPlayAll.addEventListener("click", function () {
+      var list = listFor(view);
+      if (!list.length) return;
+      if (view === "radio") {
+        playIndex("radio", 0);
+        toast("开始播放今日电台（" + list.length + " 首）");
+        return;
+      }
+      var firstIdx = -1, added = 0;
+      list.forEach(function (t, idx) {
+        var at = findIndex(S.playlist, t.id);
+        if (at < 0) {
+          S.playlist.push(plain(t));
+          at = S.playlist.length - 1;
+          added++;
+        }
+        if (idx === 0) firstIdx = at;
+      });
+      resetShuffle();
+      renderView("playlist");
+      scheduleSave();
+      if (firstIdx >= 0) playIndex("my", firstIdx);
+      toast(added > 0 ? "正在播放全部（已将 " + added + " 首新歌加入列表）" : "正在播放全部");
+    });
+  }
+  if (el.btnAddAll) {
+    el.btnAddAll.addEventListener("click", function () {
+      var list = listFor(view);
+      if (!list.length) return;
+      var added = 0;
+      list.forEach(function (t) {
+        if (findIndex(S.playlist, t.id) < 0) {
+          S.playlist.push(plain(t));
+          added++;
+        }
+      });
+      if (added > 0) {
+        resetShuffle();
+        renderView("playlist");
+        scheduleSave();
+        toast("已将 " + added + " 首歌加入我的列表");
+      } else {
+        toast("当前列表歌曲已全部在我的列表中");
+      }
     });
   }
 
@@ -1159,14 +1237,24 @@
   }
   function renderLyrics() {
     var html;
-    if (!cur) html = emptyHTML("#i-lyrics", "还没有在播的歌");
-    else if (lyric.state === "idle") html = emptyHTML("#i-lyrics", "开始播放后显示歌词");
-    else if (lyric.state === "loading") html = '<div class="empty"><small>歌词加载中…</small></div>';
-    else if (!lyric.lines.length) html = emptyHTML("#i-lyrics", "这首歌暂时没有歌词", "可能是纯音乐，或者上游没有提供");
-    else {
+    if (!cur) {
+      html = emptyHTML("#i-lyrics", "还没有在播的歌");
+      setStageLyricText("搜一首歌，开启高解析音乐之旅");
+    } else if (lyric.state === "idle") {
+      html = emptyHTML("#i-lyrics", "开始播放后显示歌词");
+      setStageLyricText("点击播放 · 同步显示歌词");
+    } else if (lyric.state === "loading") {
+      html = '<div class="empty"><small>歌词加载中…</small></div>';
+      setStageLyricText("正在载入同步歌词…");
+    } else if (!lyric.lines.length) {
+      html = emptyHTML("#i-lyrics", "这首歌暂时没有歌词", "可能是纯音乐，或者上游没有提供");
+      setStageLyricText("纯音乐或暂无歌词 · 尽享旋律");
+    } else {
       html = lyric.lines.map(function (l, i) {
         return '<p data-i="' + i + '">' + esc(l.orig || l.tran) + (l.orig && l.tran ? "<small>" + esc(l.tran) + "</small>" : "") + "</p>";
       }).join("");
+      var first = lyric.lines[0];
+      setStageLyricText((first.orig || first.tran || "♪") + (first.orig && first.tran ? " · " + first.tran : ""));
     }
     el.lyrics.innerHTML = html;
     el.lyrics.scrollTop = 0;
@@ -1190,6 +1278,11 @@
     if (old) old.classList.remove("on");
     lyric.idx = i;
     if (i < 0) return;
+    var curLine = lines[i];
+    if (curLine) {
+      var lineTxt = (curLine.orig || curLine.tran || "") + (curLine.orig && curLine.tran ? " · " + curLine.tran : "");
+      if (lineTxt) setStageLyricText(lineTxt);
+    }
     var p = el.lyrics.children[i];
     if (!p) return;
     p.classList.add("on");
@@ -1249,6 +1342,18 @@
   $("#btnSheetClose").addEventListener("click", function () { closeSheet(false); });
   $("#btnSheetLyrics").addEventListener("click", function () { setSheetLyrics(!body.classList.contains("sheet-lyrics")); });
   $("#btnLyrics").addEventListener("click", function () { setView(view === "lyrics" ? lastListView : "lyrics"); });
+  if (el.npLyricTicker) {
+    el.npLyricTicker.addEventListener("click", function () {
+      if (isPhone()) setSheetLyrics(!body.classList.contains("sheet-lyrics"));
+      else setView(view === "lyrics" ? lastListView : "lyrics");
+    });
+  }
+  if (el.cover) {
+    el.cover.addEventListener("click", function () {
+      if (isPhone()) setSheetLyrics(!body.classList.contains("sheet-lyrics"));
+      else setView(view === "lyrics" ? lastListView : "lyrics");
+    });
+  }
 
   // ── search / parse ───────────────────────────────────────────────────
   function pushSearchHist(kw) {
@@ -1772,13 +1877,30 @@
     scheduleSave();
   });
 
-  if (el.btnVinyl) {
-    el.btnVinyl.addEventListener("click", function () {
-      var on = body.classList.toggle("vinyl-on");
-      try { localStorage.setItem("kazam.vinylMode", on ? "1" : "0"); } catch (_) {}
-      toast(on ? "已切换为黑胶唱盘模式" : "已切换为方形专辑模式");
-    });
+  function syncVinylUI() {
+    var on = body.classList.contains("vinyl-on");
+    if (el.vinylModeLabel) el.vinylModeLabel.textContent = on ? "黑胶唱机" : "专辑画幅";
+    if (el.btnVinyl) el.btnVinyl.setAttribute("aria-pressed", String(on));
   }
+  function toggleVinylMode() {
+    var on = body.classList.toggle("vinyl-on");
+    syncVinylUI();
+    try { localStorage.setItem("kazam.vinylMode", on ? "1" : "0"); } catch (_) {}
+    toast(on ? "已切换为黑胶唱机模式" : "已切换为方形专辑画幅");
+  }
+  if (el.btnVinyl) el.btnVinyl.addEventListener("click", toggleVinylMode);
+
+  function toggleTheater() {
+    var on = body.classList.toggle("theater-on");
+    if (el.btnTheater) {
+      el.btnTheater.classList.toggle("on", on);
+      useIcon(el.btnTheater, on ? "#i-collapse" : "#i-expand");
+      el.btnTheater.title = on ? "退出沉浸宽屏 (F)" : "沉浸宽屏模式 (F)";
+    }
+    if (on && view !== "lyrics") setView("lyrics");
+    toast(on ? "已开启沉浸宽屏模式（按 F 或 Esc 退出）" : "已退出沉浸宽屏模式");
+  }
+  if (el.btnTheater) el.btnTheater.addEventListener("click", toggleTheater);
 
   function updateSleepUI() {
     if (!el.sleepBadge || !el.btnSleep) return;
@@ -1843,6 +1965,8 @@
         "↑ / ↓         —  调节音量",
         "M             —  静音切换",
         "L             —  切换同步歌词视图",
+        "F             —  沉浸宽屏模式 (左唱盘 + 右巨幕歌词)",
+        "V             —  切换黑胶唱机 / 方形专辑画幅",
         "/             —  聚焦顶部搜索框",
         "Alt + ↑ / ↓   —  在列表中上下移动曲目",
         "连点左上角 KAZAM 5 次 — 进入管理员曲库模式",
@@ -1858,6 +1982,7 @@
       if (!el.menu.hidden) { closeMenu(); return; }
       if (!el.exportMenu.hidden) { closeExport(); return; }
       if (body.classList.contains("sheet-open")) { closeSheet(false); return; }
+      if (body.classList.contains("theater-on")) { toggleTheater(); return; }
     }
     if (/INPUT|SELECT|TEXTAREA/.test(tag) || e.metaKey || e.ctrlKey || document.querySelector("dialog[open]")) return;
     if (e.target.closest && e.target.closest(".row") && (e.key === "Enter" || e.altKey || e.key === "Delete" || e.key === "Backspace")) return;
@@ -1881,6 +2006,12 @@
         audio.muted = !audio.muted; paintVolume(); break;
       case "l": case "L":
         if (isPhone()) openSheet(!body.classList.contains("sheet-lyrics")); else setView(view === "lyrics" ? lastListView : "lyrics");
+        break;
+      case "f": case "F":
+        if (!isPhone()) toggleTheater();
+        break;
+      case "v": case "V":
+        toggleVinylMode();
         break;
       case "/":
         e.preventDefault(); el.search.focus(); el.search.select(); break;
@@ -1933,6 +2064,7 @@
     var rawHist = JSON.parse(localStorage.getItem("kazam.searchHist") || "[]");
     if (Array.isArray(rawHist)) searchHist = rawHist.filter(Boolean).slice(0, 10);
   } catch (_) {}
+  syncVinylUI();
   try { var savedLevel = localStorage.getItem(LEVEL_KEY); if (LEVEL_LABELS[savedLevel]) level = savedLevel; } catch (_) {}
   setLevel(level, { silent: true });
   if (!loadState() && !IOS) audio.volume = 0.7;

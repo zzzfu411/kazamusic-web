@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <meta name="referrer" content="no-referrer">
-<meta name="theme-color" content="#0b0b10" id="metaThemeColor">
+<meta name="theme-color" content="#08080c" id="metaThemeColor">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="description" content="KAZAM — 沉浸式高解析在线听歌、电台与歌词工具">
@@ -64,6 +64,8 @@
     <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
     <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m12 3 1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3z"/></symbol>
     <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M18 13h.01M9 15h6"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></symbol>
+    <symbol id="i-collapse" viewBox="0 0 24 24"><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M3 21l7-7"/></symbol>
   </defs>
 </svg>
 
@@ -77,13 +79,13 @@
 </div>
 
 <header class="topbar">
-  <a class="brand" href="/" id="logoBtn" aria-label="KAZAM" title="KAZAM · 连点 5 次进入管理">
+  <a class="brand" href="/" id="logoBtn" aria-label="KAZAM" title="KAZAM · 连点 5 次进入管理员模式">
     <span class="brand-mark">
-      <img src="{{ asset('logo.webp') }}" alt="" width="36" height="36" decoding="async">
+      <img src="{{ asset('logo.webp') }}" alt="" width="38" height="38" decoding="async">
     </span>
     <span class="brand-copy">
       <span class="brand-name">KAZAM</span>
-      <span class="brand-tag">HI-FI AUDIO</span>
+      <span class="brand-tag">STUDIO PLAYER</span>
     </span>
   </a>
 
@@ -91,7 +93,7 @@
     <svg class="icon search-icon"><use href="#i-search"/></svg>
     <input id="searchInput" type="search" enterkeyhint="search" spellcheck="false"
            placeholder="搜歌、歌手，或粘贴网易云链接 / ID" aria-label="搜索">
-    <span class="search-badge" id="searchBadge" hidden>链接解析</span>
+    <span class="search-badge" id="searchBadge" hidden>直链解析</span>
     <kbd class="search-key" aria-hidden="true">/</kbd>
   </form>
 
@@ -101,6 +103,9 @@
     </button>
     <button type="button" class="pill" id="btnLoadPl" title="导入网易云歌单链接或 ID">
       <svg class="icon"><use href="#i-list-plus"/></svg><span>导入歌单</span>
+    </button>
+    <button type="button" class="icon-btn hide-mobile" id="btnTheater" title="沉浸大屏模式 (F)" aria-label="沉浸大屏模式">
+      <svg class="icon"><use href="#i-expand"/></svg>
     </button>
     <button type="button" class="icon-btn" id="btnSleep" title="睡眠定时关闭" aria-label="睡眠定时">
       <svg class="icon"><use href="#i-clock"/></svg>
@@ -123,29 +128,66 @@
       <button type="button" class="icon-btn" id="btnSheetLyrics" aria-label="歌词" aria-pressed="false"><svg class="icon"><use href="#i-lyrics"/></svg></button>
     </div>
 
+    <div class="stage-top-bar hide-mobile">
+      <div class="stage-status">
+        <span class="status-dot"></span>
+        <span id="stageSourceLabel">STUDIO DECK</span>
+      </div>
+      <div class="stage-switchers">
+        <button type="button" class="stage-chip" id="btnVinylMode" title="切换黑胶唱盘 / 专辑画幅 (V)">
+          <svg class="icon"><use href="#i-disc"/></svg>
+          <span id="vinylModeLabel">黑胶唱机</span>
+        </button>
+      </div>
+    </div>
+
     <div class="stage-visual">
-      <div class="turntable-wrap">
-        <div class="tonearm" aria-hidden="true"></div>
-        <div class="cover" id="cover">
+      <div class="turntable-wrap" id="turntableWrap">
+        <div class="cover-glow" id="coverGlow" aria-hidden="true"></div>
+        <!-- Precision SVG Hi-Fi Tonearm -->
+        <svg class="tonearm-svg" viewBox="0 0 120 220" aria-hidden="true">
+          <defs>
+            <linearGradient id="armMetal" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#e2e4ec"/>
+              <stop offset="45%" stop-color="#8b8e9e"/>
+              <stop offset="100%" stop-color="#383a47"/>
+            </linearGradient>
+            <radialGradient id="baseRing" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#353746"/>
+              <stop offset="75%" stop-color="#171821"/>
+              <stop offset="100%" stop-color="#0b0c12"/>
+            </radialGradient>
+          </defs>
+          <circle cx="84" cy="36" r="24" fill="url(#baseRing)" stroke="rgba(255,255,255,0.16)" stroke-width="1.2"/>
+          <circle cx="84" cy="36" r="14" fill="#1e202b" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+          <rect x="78" y="8" width="12" height="14" rx="3" fill="#2c2e3b" stroke="rgba(255,255,255,0.22)" stroke-width="1"/>
+          <path d="M84 36 L82 118 Q81 148 64 174 L48 196" fill="none" stroke="url(#armMetal)" stroke-width="5.2" stroke-linecap="round"/>
+          <path d="M54 188 L40 205 L47 210 L61 193 Z" fill="#f5b942" stroke="#15151e" stroke-width="1.2"/>
+          <circle cx="84" cy="36" r="5" fill="#f5b942"/>
+        </svg>
+
+        <div class="cover" id="cover" title="点击切换歌词视图">
           <div class="vinyl-grooves" aria-hidden="true"></div>
           <img class="cover-default" src="{{ asset('default-cover.webp') }}" alt="" width="600" height="600" decoding="async">
           <img id="coverImg" alt="" width="600" height="600" decoding="async" referrerpolicy="no-referrer">
+          <div class="vinyl-sheen" aria-hidden="true"></div>
           <div class="vinyl-spindle" aria-hidden="true"></div>
           <svg class="cover-ph icon"><use href="#i-note"/></svg>
         </div>
-        <button type="button" class="vinyl-toggle" id="btnVinylMode" title="切换黑胶唱盘 / 方形封面" aria-label="切换封面样式">
-          <svg class="icon"><use href="#i-disc"/></svg>
-        </button>
       </div>
       <div class="stage-lyrics" id="stageLyrics" hidden></div>
     </div>
 
+    <!-- Real-time inline synchronized lyric line on the stage -->
+    <button type="button" class="stage-lyric-ticker" id="npLyricTicker" title="点击展开同步歌词 (L)">
+      <span class="ticker-wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <span class="ticker-text" id="npLyricLine">搜一首歌，开启高解析音乐之旅</span>
+    </button>
+
     <div class="stage-deck">
       <div class="np">
         <div class="np-text">
-          <div class="np-title-row">
-            <h1 class="np-title" id="npTitle">KAZAM</h1>
-          </div>
+          <h1 class="np-title" id="npTitle">KAZAM</h1>
           <p class="np-artist" id="npArtist" title="点击搜索该歌手">搜一首歌开始吧</p>
         </div>
         <div class="np-tags">
@@ -158,6 +200,7 @@
         <div class="bar" id="progTrack" role="slider" tabindex="0" aria-label="播放进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
           <div class="bar-buf" id="progBuf"></div>
           <div class="bar-fill" id="progFill"></div>
+          <div class="bar-thumb" id="progThumb"></div>
           <span class="bar-HoverTip" id="progTip" hidden>0:00</span>
         </div>
         <div class="times"><span id="timeCur">0:00</span><span id="timeTot">0:00</span></div>
@@ -204,7 +247,7 @@
   <section class="panel" aria-label="歌曲列表">
     <div class="panel-head">
       <div class="tabs" role="tablist">
-        <button type="button" role="tab" data-view="search" aria-selected="true">探索 / 搜索</button>
+        <button type="button" role="tab" data-view="search" aria-selected="true">探索发现</button>
         <button type="button" role="tab" data-view="playlist" aria-selected="false">我的列表<i id="countMy"></i></button>
         <button type="button" role="tab" data-view="radio" aria-selected="false">今日电台<i id="countRadio"></i></button>
         <button type="button" role="tab" data-view="lyrics" aria-selected="false">同步歌词</button>
@@ -230,7 +273,13 @@
         <button type="button" class="tool" data-for="library" id="btnRefreshLib"><svg class="icon"><use href="#i-refresh"/></svg><span>刷新</span></button>
       </div>
     </div>
-    <p class="panel-sub" id="panelSub"></p>
+    <div class="panel-sub-bar">
+      <p class="panel-sub" id="panelSub"></p>
+      <div class="panel-batch" id="panelBatch" hidden>
+        <button type="button" class="batch-btn primary" id="btnPlayAll"><svg class="icon"><use href="#i-play"/></svg><span>播放全部</span></button>
+        <button type="button" class="batch-btn" id="btnAddAll"><svg class="icon"><use href="#i-plus"/></svg><span>全部加入列表</span></button>
+      </div>
+    </div>
     <div class="panel-body" id="panelBody">
       <div class="view" data-view="search" id="viewSearch"></div>
       <div class="view" data-view="playlist" id="viewPlaylist" hidden></div>

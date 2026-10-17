@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="aurora">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="dark light">
 <meta name="referrer" content="no-referrer">
-<meta name="theme-color" content="#08080c" id="metaThemeColor">
+<meta name="theme-color" content="#090d16" id="metaThemeColor">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="description" content="KAZAM — 沉浸式高解析在线听歌、电台与歌词工具">
@@ -66,6 +66,8 @@
     <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M18 13h.01M9 15h6"/></symbol>
     <symbol id="i-expand" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></symbol>
     <symbol id="i-collapse" viewBox="0 0 24 24"><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M3 21l7-7"/></symbol>
+    <symbol id="i-palette" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r=".8" class="solid"/><circle cx="17.5" cy="10.5" r=".8" class="solid"/><circle cx="8.5" cy="7.5" r=".8" class="solid"/><circle cx="6.5" cy="12.5" r=".8" class="solid"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.93 0 1.65-.75 1.65-1.69 0-.44-.18-.84-.44-1.13-.29-.29-.44-.65-.44-1.12a1.65 1.65 0 0 1 1.67-1.67h2C19.5 16.4 22 13.9 22 10.9 22 5.98 17.5 2 12 2z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
   </defs>
 </svg>
 
@@ -104,6 +106,50 @@
     <button type="button" class="pill" id="btnLoadPl" title="导入网易云歌单链接或 ID">
       <svg class="icon"><use href="#i-list-plus"/></svg><span>导入歌单</span>
     </button>
+    <div class="theme-wrap">
+      <button type="button" class="icon-btn" id="btnTheme" title="切换主题配色 (T)" aria-label="切换主题配色" aria-expanded="false">
+        <svg class="icon"><use href="#i-palette"/></svg>
+      </button>
+      <div class="pop theme-pop" id="themeMenu" role="menu" hidden>
+        <div class="theme-pop-head">
+          <span>主题视觉配色</span>
+          <kbd>T</kbd>
+        </div>
+        <div class="theme-list" id="themeList">
+          <button type="button" class="theme-item" data-theme-opt="aurora" role="menuitem">
+            <span class="theme-swatch" style="--sw-bg:#090d16;--sw-1:#38bdf8;--sw-2:#818cf8"></span>
+            <span class="theme-info"><b>极光星云</b><small>深海靛蓝 · 电光青紫</small></span>
+            <svg class="icon theme-check"><use href="#i-check"/></svg>
+          </button>
+          <button type="button" class="theme-item" data-theme-opt="apple" role="menuitem">
+            <span class="theme-swatch" style="--sw-bg:#0a0a0e;--sw-1:#fa2d48;--sw-2:#ff6482"></span>
+            <span class="theme-info"><b>流光绯红</b><small>Apple Music 玫瑰红</small></span>
+            <svg class="icon theme-check"><use href="#i-check"/></svg>
+          </button>
+          <button type="button" class="theme-item" data-theme-opt="daylight" role="menuitem">
+            <span class="theme-swatch" style="--sw-bg:#f1f5f9;--sw-1:#2563eb;--sw-2:#7c3aed"></span>
+            <span class="theme-info"><b>清透白昼</b><small>浅色毛玻璃 · 钴蓝微光</small></span>
+            <svg class="icon theme-check"><use href="#i-check"/></svg>
+          </button>
+          <button type="button" class="theme-item" data-theme-opt="emerald" role="menuitem">
+            <span class="theme-swatch" style="--sw-bg:#07120f;--sw-1:#10b981;--sw-2:#06b6d4"></span>
+            <span class="theme-info"><b>北欧森屿</b><small>深松石绿 · 翡翠极光</small></span>
+            <svg class="icon theme-check"><use href="#i-check"/></svg>
+          </button>
+          <button type="button" class="theme-item" data-theme-opt="sunset" role="menuitem">
+            <span class="theme-swatch" style="--sw-bg:#110a1a;--sw-1:#c084fc;--sw-2:#fb7185"></span>
+            <span class="theme-info"><b>落日微醺</b><small>暮光紫晶 · 晚霞珊瑚</small></span>
+            <svg class="icon theme-check"><use href="#i-check"/></svg>
+          </button>
+        </div>
+        <div class="theme-pop-foot">
+          <button type="button" class="theme-cover-toggle" id="btnCoverAccent" aria-pressed="false">
+            <span>跟随专辑封面取色</span>
+            <span class="switch-pill" id="coverAccentPill"><i></i></span>
+          </button>
+        </div>
+      </div>
+    </div>
     <button type="button" class="icon-btn hide-mobile" id="btnTheater" title="沉浸大屏模式 (F)" aria-label="沉浸大屏模式">
       <svg class="icon"><use href="#i-expand"/></svg>
     </button>
@@ -162,8 +208,8 @@
           <circle cx="84" cy="36" r="14" fill="#1e202b" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
           <rect x="78" y="8" width="12" height="14" rx="3" fill="#2c2e3b" stroke="rgba(255,255,255,0.22)" stroke-width="1"/>
           <path d="M84 36 L82 118 Q81 148 64 174 L48 196" fill="none" stroke="url(#armMetal)" stroke-width="5.2" stroke-linecap="round"/>
-          <path d="M54 188 L40 205 L47 210 L61 193 Z" fill="#f5b942" stroke="#15151e" stroke-width="1.2"/>
-          <circle cx="84" cy="36" r="5" fill="#f5b942"/>
+          <path d="M54 188 L40 205 L47 210 L61 193 Z" fill="var(--accent)" stroke="#15151e" stroke-width="1.2"/>
+          <circle cx="84" cy="36" r="5" fill="var(--accent)"/>
         </svg>
 
         <div class="cover" id="cover" title="点击切换歌词视图">

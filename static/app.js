@@ -8,17 +8,27 @@
   // ── constants ────────────────────────────────────────────────────────
   var STORAGE_KEY = "kazam.vps.v2";
   var LEVEL_KEY = "kazam.audioLevel";
+  var THEME_KEY = "kazam.theme";
+  var COVER_ACCENT_KEY = "kazam.coverAccent";
   var ADMIN_TOKEN_KEY = "kazam.admin.token";
   var LEVEL_LABELS = {
     standard: "标准", higher: "较高", exhigh: "极高", lossless: "无损", hires: "Hi-Res", jymaster: "臻品母带",
   };
+  var THEMES = {
+    aurora: { name: "极光星云", meta: "#080c15" },
+    apple: { name: "流光绯红", meta: "#09090c" },
+    daylight: { name: "清透白昼", meta: "#eef2f9" },
+    emerald: { name: "北欧森屿", meta: "#06100e" },
+    sunset: { name: "落日微醺", meta: "#0e0816" },
+  };
+  var THEME_ORDER = ["aurora", "apple", "daylight", "emerald", "sunset"];
   var MODES = ["loop", "shuffle", "repeat-one"];
   var MODE_INFO = {
     loop: { icon: "#i-repeat", label: "列表循环" },
     shuffle: { icon: "#i-shuffle", label: "随机播放" },
     "repeat-one": { icon: "#i-repeat-one", label: "单曲循环" },
   };
-  var DEFAULT_ACCENT = [242, 201, 76];
+  var DEFAULT_ACCENT = [56, 189, 248];
   var NETEASE = /^https?:\/\/p\d+\.music\.126\.net\//i;
   var LINKISH = /music\.163\.com|163cn\.tv|song\?id=|^\s*\d{5,}\s*$/i;
   var TRANSLATION_MARK = /^\s*\[(?:翻译歌词|中文翻译|翻译|译文|translation(?:\s+lyrics?)?)\]\s*$/i;
@@ -48,6 +58,7 @@
     menu: $("#rowMenu"), toast: $("#toast"), exportMenu: $("#exportMenu"), exportBtn: $("#btnExportPl"),
     dlg: $("#dlg"), dlgTitle: $("#dlgTitle"), dlgDesc: $("#dlgDesc"), dlgInput: $("#dlgInput"), dlgActions: $("#dlgActions"),
     quota: $("#chkszQuota"), meta: $("#metaThemeColor"),
+    btnTheme: $("#btnTheme"), themeMenu: $("#themeMenu"), themeList: $("#themeList"), btnCoverAccent: $("#btnCoverAccent"),
     btnVinyl: $("#btnVinylMode"), btnTheater: $("#btnTheater"), btnSleep: $("#btnSleep"), sleepBadge: $("#sleepBadge"), btnShortcuts: $("#btnShortcuts"),
   };
   var views = {
@@ -57,6 +68,8 @@
   // ── state ────────────────────────────────────────────────────────────
   var S = { playlist: [], radio: [], radioDate: "", source: "my", idx: -1, mode: "loop", pos: 0 };
   var level = "exhigh";
+  var curTheme = "aurora";
+  var coverAccentOn = false;
   var cur = null;                 // the track on the stage (a copy, enriched by /api/song)
   var view = "search";
   var lastListView = "search";
@@ -75,16 +88,16 @@
   var bag = [], bagKey = "", shuffleHist = [];
   var radioLoading = false;
   var MOODS = [
-    ["流行热歌", "华语流行 · 热门榜单", "#f5b942"],
+    ["流行热歌", "华语流行 · 热门榜单", "#38bdf8"],
     ["独立民谣", "吉他叙事 · 温暖治愈", "#34d399"],
     ["日系动漫", "ACG 原声 · J-Pop", "#fb7185"],
     ["R&B 夜色", "微醺律动 · 深夜电台", "#a78bfa"],
     ["爵士咖啡馆", "慵懒萨克斯 · 钢琴三重奏", "#fb923c"],
-    ["轻音乐", "专注学习 · 氛围纯音", "#38bdf8"],
+    ["轻音乐", "专注学习 · 氛围纯音", "#818cf8"],
     ["粤语经典", "港乐黄金年代", "#f472b6"],
     ["电子律动", "Synth · House · 节拍", "#22d3ee"],
     ["经典摇滚", "乐队现场 · 失真吉他", "#ef4444"],
-    ["影视金曲", "电影与剧集 OST", "#eab308"],
+    ["影视金曲", "电影与剧集 OST", "#c084fc"],
   ];
 
   // ── helpers ──────────────────────────────────────────────────────────
@@ -237,17 +250,22 @@
     }
   }
   function applyAccent(rgb) {
-    rgb = rgb || DEFAULT_ACCENT;
+    if (!coverAccentOn || !rgb) {
+      root.style.removeProperty("--accent-rgb");
+      root.style.removeProperty("--on-accent");
+      if (el.meta) el.meta.setAttribute("content", (THEMES[curTheme] && THEMES[curTheme].meta) || "#080c15");
+      return;
+    }
     root.style.setProperty("--accent-rgb", rgb.join(", "));
     var lum = (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
-    root.style.setProperty("--on-accent", lum > 0.55 ? "#14110c" : "#ffffff");
+    root.style.setProperty("--on-accent", lum > 0.55 ? "#06101b" : "#ffffff");
     var hsl = rgbToHsl(rgb[0], rgb[1], rgb[2]);
-    var dark = hslToRgb(hsl[0], hsl[1] * 0.5, 0.1);
+    var dark = hslToRgb(hsl[0], hsl[1] * 0.5, curTheme === "daylight" ? 0.92 : 0.1);
     if (el.meta) el.meta.setAttribute("content", "rgb(" + dark.join(",") + ")");
   }
   function sampleAccent(raw) {
     raw = normCover(raw);
-    if (!raw) { applyAccent(null); return; }
+    if (!coverAccentOn || !raw) { applyAccent(null); return; }
     if (accentCache[raw]) { applyAccent(accentCache[raw]); return; }
     var src = coverSameOrigin(raw, 64);
     var img = new Image();
@@ -256,7 +274,7 @@
       var rgb = pickAccent(img);
       if (!rgb) return;
       accentCache[raw] = rgb;
-      if (cur && normCover(cur.cover) === raw) applyAccent(rgb);
+      if (coverAccentOn && cur && normCover(cur.cover) === raw) applyAccent(rgb);
     };
     img.src = src;
   }
@@ -1877,6 +1895,60 @@
     scheduleSave();
   });
 
+  function setTheme(id, silent) {
+    if (!THEMES[id]) id = "aurora";
+    curTheme = id;
+    root.setAttribute("data-theme", id);
+    if (el.themeList) {
+      $$("[data-theme-opt]", el.themeList).forEach(function (btn) {
+        btn.classList.toggle("active", btn.getAttribute("data-theme-opt") === id);
+      });
+    }
+    try { localStorage.setItem(THEME_KEY, id); } catch (_) {}
+    sampleAccent(cur ? cur.cover : "");
+    if (!silent) toast("主题配色：" + THEMES[id].name);
+  }
+  function syncCoverAccentUI() {
+    if (!el.btnCoverAccent) return;
+    el.btnCoverAccent.setAttribute("aria-checked", coverAccentOn ? "true" : "false");
+    el.btnCoverAccent.classList.toggle("on", coverAccentOn);
+  }
+  function closeThemeMenu() {
+    if (el.themeMenu) el.themeMenu.hidden = true;
+    if (el.btnTheme) el.btnTheme.classList.remove("on");
+  }
+  if (el.btnTheme && el.themeMenu) {
+    el.btnTheme.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var open = el.themeMenu.hidden;
+      el.themeMenu.hidden = !open;
+      el.btnTheme.classList.toggle("on", open);
+    });
+  }
+  if (el.themeList) {
+    el.themeList.addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-theme-opt]");
+      if (!btn) return;
+      setTheme(btn.getAttribute("data-theme-opt"), false);
+      closeThemeMenu();
+    });
+  }
+  if (el.btnCoverAccent) {
+    el.btnCoverAccent.addEventListener("click", function (e) {
+      e.stopPropagation();
+      coverAccentOn = !coverAccentOn;
+      syncCoverAccentUI();
+      try { localStorage.setItem(COVER_ACCENT_KEY, coverAccentOn ? "1" : "0"); } catch (_) {}
+      sampleAccent(cur ? cur.cover : "");
+      toast(coverAccentOn ? "已开启：跟随专辑封面动态取色" : "已关闭封面取色，使用纯正主题色");
+    });
+  }
+  document.addEventListener("click", function (e) {
+    if (el.themeMenu && !el.themeMenu.hidden && !el.themeMenu.contains(e.target) && e.target !== el.btnTheme) {
+      closeThemeMenu();
+    }
+  });
+
   function syncVinylUI() {
     var on = body.classList.contains("vinyl-on");
     if (el.vinylModeLabel) el.vinylModeLabel.textContent = on ? "黑胶唱机" : "专辑画幅";
@@ -1967,6 +2039,7 @@
         "L             —  切换同步歌词视图",
         "F             —  沉浸宽屏模式 (左唱盘 + 右巨幕歌词)",
         "V             —  切换黑胶唱机 / 方形专辑画幅",
+        "T             —  循环切换 5 套主题配色",
         "/             —  聚焦顶部搜索框",
         "Alt + ↑ / ↓   —  在列表中上下移动曲目",
         "连点左上角 KAZAM 5 次 — 进入管理员曲库模式",
@@ -1979,6 +2052,7 @@
   document.addEventListener("keydown", function (e) {
     var tag = (e.target && e.target.tagName) || "";
     if (e.key === "Escape") {
+      if (el.themeMenu && !el.themeMenu.hidden) { closeThemeMenu(); return; }
       if (!el.menu.hidden) { closeMenu(); return; }
       if (!el.exportMenu.hidden) { closeExport(); return; }
       if (body.classList.contains("sheet-open")) { closeSheet(false); return; }
@@ -2012,6 +2086,9 @@
         break;
       case "v": case "V":
         toggleVinylMode();
+        break;
+      case "t": case "T":
+        setTheme(THEME_ORDER[(THEME_ORDER.indexOf(curTheme) + 1) % THEME_ORDER.length], false);
         break;
       case "/":
         e.preventDefault(); el.search.focus(); el.search.select(); break;
@@ -2061,9 +2138,14 @@
   if (IOS) body.classList.add("ios");
   try {
     if (localStorage.getItem("kazam.vinylMode") === "0") body.classList.remove("vinyl-on");
+    var savedTheme = localStorage.getItem(THEME_KEY);
+    if (THEMES[savedTheme]) curTheme = savedTheme;
+    coverAccentOn = localStorage.getItem(COVER_ACCENT_KEY) === "1";
     var rawHist = JSON.parse(localStorage.getItem("kazam.searchHist") || "[]");
     if (Array.isArray(rawHist)) searchHist = rawHist.filter(Boolean).slice(0, 10);
   } catch (_) {}
+  syncCoverAccentUI();
+  setTheme(curTheme, true);
   syncVinylUI();
   try { var savedLevel = localStorage.getItem(LEVEL_KEY); if (LEVEL_LABELS[savedLevel]) level = savedLevel; } catch (_) {}
   setLevel(level, { silent: true });

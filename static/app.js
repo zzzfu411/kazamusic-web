@@ -223,6 +223,16 @@
     }
     return [f(0), f(8), f(4)];
   }
+  function seedAccent(str) {
+    var s = String(str || "kazam-cover");
+    var hash = 2166136261;
+    for (var i = 0; i < s.length; i++) {
+      hash ^= s.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    var h = ((hash >>> 0) % 360) / 360;
+    return hslToRgb(h, 0.78, 0.64);
+  }
   function pickAccent(img) {
     try {
       var c = document.createElement("canvas");
@@ -232,49 +242,99 @@
       var d = ctx.getImageData(0, 0, 32, 32).data;
       var buckets = {};
       for (var i = 0; i < d.length; i += 4) {
+        if (d[i + 3] < 128) continue;
         var hsl = rgbToHsl(d[i], d[i + 1], d[i + 2]);
-        if (hsl[2] < 0.12 || hsl[2] > 0.93) continue;
-        var w = hsl[1] * (1 - Math.abs(hsl[2] - 0.5) * 1.3);
-        if (w <= 0.08) continue;
+        if (hsl[2] < 0.10 || hsl[2] > 0.94) continue;
+        var w = (hsl[1] + 0.08) * (1 - Math.abs(hsl[2] - 0.52) * 1.25);
+        if (w <= 0.05) continue;
         var k = Math.round(hsl[0] * 18) % 18;
         var bk = buckets[k] || (buckets[k] = { w: 0, r: 0, g: 0, b: 0 });
         bk.w += w; bk.r += d[i] * w; bk.g += d[i + 1] * w; bk.b += d[i + 2] * w;
       }
       var best = null;
       Object.keys(buckets).forEach(function (key) { if (!best || buckets[key].w > best.w) best = buckets[key]; });
-      if (!best || best.w < 3) return [232, 232, 238];       // a grey cover: a quiet near-white
+      if (!best || best.w < 1.5) return null;
       var h = rgbToHsl(best.r / best.w, best.g / best.w, best.b / best.w);
-      return hslToRgb(h[0], clamp(h[1], 0.45, 0.85), clamp(h[2], 0.6, 0.72));
+      return hslToRgb(h[0], clamp(h[1], 0.58, 0.90), clamp(h[2], 0.58, 0.70));
     } catch (e) {
       return null;
     }
   }
+  var COVER_PROPS = [
+    "--accent-rgb", "--accent-2-rgb", "--accent", "--accent-2",
+    "--on-accent", "--art-hue", "--bg", "--bg-elev", "--glass-stage",
+  ];
   function applyAccent(rgb) {
     if (!coverAccentOn || !rgb) {
-      root.style.removeProperty("--accent-rgb");
-      root.style.removeProperty("--on-accent");
+      COVER_PROPS.forEach(function (p) { root.style.removeProperty(p); });
+      body.classList.remove("cover-accent-on");
       if (el.meta) el.meta.setAttribute("content", (THEMES[curTheme] && THEMES[curTheme].meta) || "#080c15");
       return;
     }
-    root.style.setProperty("--accent-rgb", rgb.join(", "));
-    var lum = (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
-    root.style.setProperty("--on-accent", lum > 0.55 ? "#06101b" : "#ffffff");
     var hsl = rgbToHsl(rgb[0], rgb[1], rgb[2]);
-    var dark = hslToRgb(hsl[0], hsl[1] * 0.5, curTheme === "daylight" ? 0.92 : 0.1);
-    if (el.meta) el.meta.setAttribute("content", "rgb(" + dark.join(",") + ")");
+    var isLight = curTheme === "daylight";
+    var rgb1 = hslToRgb(hsl[0], clamp(hsl[1], 0.65, 0.92), isLight ? clamp(hsl[2], 0.42, 0.52) : clamp(hsl[2], 0.58, 0.70));
+    var rgb2 = hslToRgb((hsl[0] + 0.11) % 1, clamp(hsl[1], 0.65, 0.92), isLight ? 0.48 : 0.64);
+    root.style.setProperty("--accent-rgb", rgb1.join(", "));
+    root.style.setProperty("--accent-2-rgb", rgb2.join(", "));
+    root.style.setProperty("--accent", "rgb(" + rgb1.join(", ") + ")");
+    root.style.setProperty("--accent-2", "rgb(" + rgb2.join(", ") + ")");
+    var lum = (0.2126 * rgb1[0] + 0.7152 * rgb1[1] + 0.0722 * rgb1[2]) / 255;
+    root.style.setProperty("--on-accent", lum > 0.55 ? "#06101b" : "#ffffff");
+    root.style.setProperty("--art-hue", Math.round(hsl[0] * 360 - 200) + "deg");
+    if (!isLight) {
+      var bgRgb = hslToRgb(hsl[0], clamp(hsl[1] * 0.55, 0.22, 0.48), 0.06);
+      var elevRgb = hslToRgb(hsl[0], clamp(hsl[1] * 0.55, 0.22, 0.50), 0.10);
+      var stTop = hslToRgb(hsl[0], clamp(hsl[1] * 0.65, 0.28, 0.58), 0.16);
+      var stBot = hslToRgb((hsl[0] + 0.06) % 1, clamp(hsl[1] * 0.55, 0.22, 0.48), 0.08);
+      root.style.setProperty("--bg", "rgb(" + bgRgb.join(",") + ")");
+      root.style.setProperty("--bg-elev", "rgb(" + elevRgb.join(",") + ")");
+      root.style.setProperty("--glass-stage", "linear-gradient(165deg, rgba(" + stTop.join(",") + ", 0.78) 0%, rgba(" + stBot.join(",") + ", 0.90) 100%)");
+      if (el.meta) el.meta.setAttribute("content", "rgb(" + bgRgb.join(",") + ")");
+    } else {
+      ["--bg", "--bg-elev", "--glass-stage"].forEach(function (p) { root.style.removeProperty(p); });
+      var lightMeta = hslToRgb(hsl[0], 0.35, 0.93);
+      if (el.meta) el.meta.setAttribute("content", "rgb(" + lightMeta.join(",") + ")");
+    }
+    body.classList.add("cover-accent-on");
+  }
+  var wantedAccentRaw = "";
+  function activeCoverRaw() {
+    if (cur && cur.cover) return cur.cover;
+    var q = queue();
+    if (q[0] && q[0].cover) return q[0].cover;
+    if (search.results[0] && search.results[0].cover) return search.results[0].cover;
+    return "";
   }
   function sampleAccent(raw) {
-    raw = normCover(raw);
-    if (!coverAccentOn || !raw) { applyAccent(null); return; }
+    if (!coverAccentOn) { applyAccent(null); return; }
+    raw = normCover(raw || activeCoverRaw());
+    wantedAccentRaw = raw;
+    if (!raw) {
+      applyAccent(seedAccent((cur && (cur.name || cur.artist || cur.id)) || "kazam-vinyl"));
+      return;
+    }
     if (accentCache[raw]) { applyAccent(accentCache[raw]); return; }
+    if (el.coverImg && el.coverImg.complete && el.coverImg.naturalWidth > 0) {
+      var directRgb = pickAccent(el.coverImg);
+      if (directRgb) {
+        accentCache[raw] = directRgb;
+        applyAccent(directRgb);
+        return;
+      }
+    }
     var src = coverSameOrigin(raw, 64);
     var img = new Image();
     img.decoding = "async";
     img.onload = function () {
-      var rgb = pickAccent(img);
-      if (!rgb) return;
+      var rgb = pickAccent(img) || seedAccent((cur && (cur.name || cur.artist || cur.id)) || raw);
       accentCache[raw] = rgb;
-      if (coverAccentOn && cur && normCover(cur.cover) === raw) applyAccent(rgb);
+      if (coverAccentOn && wantedAccentRaw === raw) applyAccent(rgb);
+    };
+    img.onerror = function () {
+      var fallback = seedAccent((cur && (cur.name || cur.artist || cur.id)) || raw);
+      accentCache[raw] = fallback;
+      if (coverAccentOn && wantedAccentRaw === raw) applyAccent(fallback);
     };
     img.src = src;
   }
@@ -1910,7 +1970,9 @@
   }
   function syncCoverAccentUI() {
     if (!el.btnCoverAccent) return;
-    el.btnCoverAccent.setAttribute("aria-checked", coverAccentOn ? "true" : "false");
+    var val = coverAccentOn ? "true" : "false";
+    el.btnCoverAccent.setAttribute("aria-pressed", val);
+    el.btnCoverAccent.setAttribute("aria-checked", val);
     el.btnCoverAccent.classList.toggle("on", coverAccentOn);
   }
   function closeThemeMenu() {
@@ -1929,6 +1991,11 @@
     el.themeList.addEventListener("click", function (e) {
       var btn = e.target.closest("[data-theme-opt]");
       if (!btn) return;
+      if (coverAccentOn) {
+        coverAccentOn = false;
+        syncCoverAccentUI();
+        try { localStorage.setItem(COVER_ACCENT_KEY, "0"); } catch (_) {}
+      }
       setTheme(btn.getAttribute("data-theme-opt"), false);
       closeThemeMenu();
     });
@@ -1940,7 +2007,7 @@
       syncCoverAccentUI();
       try { localStorage.setItem(COVER_ACCENT_KEY, coverAccentOn ? "1" : "0"); } catch (_) {}
       sampleAccent(cur ? cur.cover : "");
-      toast(coverAccentOn ? "已开启：跟随专辑封面动态取色" : "已关闭封面取色，使用纯正主题色");
+      toast(coverAccentOn ? "已开启：跟随专辑封面动态取色" : "已关闭封面取色，恢复纯正主题色");
     });
   }
   document.addEventListener("click", function (e) {

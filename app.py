@@ -584,8 +584,20 @@ def cover_host_ok(url: str) -> bool:
         return False
     if not host:
         return False
-    # allow meting pic proxies + netease CDNs
-    extra = ("qijieya.cn", "meting", "paugram.com")
+    # allow meting pic proxies + netease / qq / kugou / kuwo / migu CDNs
+    extra = (
+        "qijieya.cn",
+        "injahow.cn",
+        "meting",
+        "paugram.com",
+        "chksz",
+        "gtimg.cn",
+        "qq.com",
+        "kugou.com",
+        "kuwo.cn",
+        "migu.cn",
+        "ors.de5.net",
+    )
     if any(x in host for x in extra):
         return True
     return any(host == s or host.endswith("." + s) for s in config.COVER_HOST_SUFFIXES)

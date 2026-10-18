@@ -7,7 +7,7 @@ html[data-theme="aurora"] {
   --bg-elev: #0f1626;
   --text: #f1f5f9;
   --text-2: rgba(226, 232, 240, 0.68);
-  --text-3: rgba(148, 163, 184, 0.52);
+  --text-3: rgba(148, 163, 184, 0.78);
   --line: rgba(148, 163, 184, 0.1);
   --line-bright: rgba(148, 163, 184, 0.18);
   --glass: rgba(13, 19, 33, 0.62);
@@ -38,7 +38,7 @@ html[data-theme="apple"] {
   --bg-elev: #141419;
   --text: #fafafa;
   --text-2: rgba(244, 244, 246, 0.66);
-  --text-3: rgba(161, 161, 170, 0.48);
+  --text-3: rgba(161, 161, 170, 0.77);
   --line: rgba(255, 255, 255, 0.08);
   --line-bright: rgba(255, 255, 255, 0.15);
   --glass: rgba(18, 18, 24, 0.62);
@@ -60,7 +60,7 @@ html[data-theme="emerald"] {
   --bg-elev: #0c1d19;
   --text: #ecfdf5;
   --text-2: rgba(209, 250, 229, 0.68);
-  --text-3: rgba(148, 184, 168, 0.5);
+  --text-3: rgba(148, 184, 168, 0.72);
   --line: rgba(110, 231, 183, 0.09);
   --line-bright: rgba(110, 231, 183, 0.17);
   --glass: rgba(10, 24, 20, 0.62);
@@ -82,7 +82,7 @@ html[data-theme="sunset"] {
   --bg-elev: #1a1027;
   --text: #faf5ff;
   --text-2: rgba(243, 232, 255, 0.68);
-  --text-3: rgba(192, 168, 216, 0.5);
+  --text-3: rgba(192, 168, 216, 0.7);
   --line: rgba(216, 180, 254, 0.09);
   --line-bright: rgba(216, 180, 254, 0.17);
   --glass: rgba(22, 13, 34, 0.62);
@@ -104,7 +104,7 @@ html[data-theme="daylight"] {
   --bg-elev: #ffffff;
   --text: #0f172a;
   --text-2: rgba(15, 23, 42, 0.68);
-  --text-3: rgba(51, 65, 85, 0.52);
+  --text-3: rgba(51, 65, 85, 0.76);
   --line: rgba(15, 23, 42, 0.08);
   --line-bright: rgba(15, 23, 42, 0.13);
   --glass: rgba(255, 255, 255, 0.72);
@@ -184,6 +184,9 @@ html[data-theme="daylight"] body.cover-accent-on .backdrop-art.on { opacity: 0.3
   background: rgb(var(--accent-2-rgb));
   animation: floatOrb 22s ease-in-out infinite alternate-reverse;
 }
+/* the light drifts only while music plays: an idle page draws nothing */
+.backdrop-orb { animation-play-state: paused; }
+body.playing .backdrop-orb { animation-play-state: running; }
 body.playing .backdrop-orb,
 body.cover-accent-on .backdrop-orb { opacity: 0.38; }
 html[data-theme="daylight"] .backdrop-orb { opacity: 0.16; }
@@ -424,6 +427,13 @@ body.theater-on .app {
   grid-template-columns: minmax(410px, 500px) minmax(0, 1fr);
   gap: 32px;
 }
+/* 沉浸模式 (the browser goes fullscreen too): no top bar, no tabs — the deck and the words */
+.theater-exit { display: none; }
+body.theater-on .topbar { display: none; }
+body.theater-on .app { height: 100dvh; padding-top: 24px; }
+body.theater-on .panel { position: relative; }
+body.theater-on .panel-head, body.theater-on .panel-sub-bar { display: none; }
+body.theater-on .theater-exit { display: inline-grid; position: absolute; top: 14px; right: 14px; z-index: 5; }
 
 /* ── Left Stage: Studio Turntable & Player Deck ───────────────────────── */
 .stage {
@@ -447,7 +457,7 @@ html[data-theme="daylight"] .panel {
 }
 .stage::after {
   content: ""; position: absolute; top: -25%; left: -15%; width: 70%; height: 55%;
-  background: radial-gradient(circle, rgba(var(--accent-rgb), 0.14), transparent 70%);
+  background: radial-gradient(closest-side, rgba(var(--accent-rgb), 0.14), transparent);
   pointer-events: none; z-index: 0;
 }
 .stage > * { position: relative; z-index: 1; }
@@ -583,15 +593,6 @@ body.vinyl-on.playing .cover {
       rgba(255, 255, 255, 0.04) 1px,
       transparent 1px,
       transparent 3.5px
-    ),
-    conic-gradient(
-      from 35deg,
-      transparent 0deg,
-      rgba(255, 255, 255, 0.09) 42deg,
-      transparent 88deg,
-      transparent 180deg,
-      rgba(var(--accent-rgb), 0.16) 222deg,
-      transparent 268deg
     );
 }
 /* Only show synthetic grooves when a custom song cover is loaded as the center label */
@@ -602,12 +603,29 @@ body.vinyl-on .cover.has-art img#coverImg {
     0 0 0 5px rgba(8, 11, 20, 0.92),
     0 0 0 6px rgba(255, 255, 255, 0.16);
 }
-.vinyl-sheen {
+/* Light falls on the record from one place: the shine lies over the turning
+   record (siblings of .cover, not inside it) and stays put. */
+.vinyl-glare, .vinyl-sheen {
   display: none;
   position: absolute; inset: 0; border-radius: 50%; z-index: 3; pointer-events: none;
-  background: radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.11), transparent 55%);
 }
+.vinyl-sheen { background: radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.11), transparent 55%); }
 body.vinyl-on .vinyl-sheen { display: block; }
+.vinyl-glare {
+  background: conic-gradient(
+    from 35deg,
+    transparent 0deg,
+    rgba(255, 255, 255, 0.09) 42deg,
+    transparent 88deg,
+    transparent 180deg,
+    rgba(var(--accent-rgb), 0.16) 222deg,
+    transparent 268deg
+  );
+  /* on the grooves, not across the label */
+  -webkit-mask: radial-gradient(closest-side, transparent 68%, #000 69%);
+  mask: radial-gradient(closest-side, transparent 68%, #000 69%);
+}
+body.vinyl-on .cover.has-art ~ .vinyl-glare { display: block; }
 .vinyl-spindle {
   display: none; position: absolute; inset: 0; margin: auto;
   width: 16px; height: 16px; border-radius: 50%; z-index: 4;
@@ -619,16 +637,17 @@ body.vinyl-on .cover.has-art .vinyl-spindle { display: block; }
 /* Precision SVG S-Tonearm */
 .tonearm-svg {
   display: none;
-  position: absolute; top: -12px; right: -18px;
-  width: 105px; height: 192px;
+  position: absolute; top: -3.81%; right: -5.71%;
+  width: 33.33%; height: 60.95%;
   z-index: 6; pointer-events: none;
-  transform-origin: 73.5px 31.5px;
+  transform-origin: 69.95% 16.36%;
   transform: rotate(-24deg);
   transition: transform 0.75s var(--ease);
   filter: drop-shadow(0 10px 16px rgba(0, 0, 0, 0.5));
 }
 body.vinyl-on .tonearm-svg { display: block; }
-body.vinyl-on.playing .tonearm-svg { transform: rotate(3deg); }
+/* -14° sets the stylus on the outer grooves (0.93 of the radius), -3° near the label (0.74) */
+body.vinyl-on.playing .tonearm-svg { transform: rotate(calc(-14deg + var(--arm, 0) * 11deg)); }
 
 /* Live Stage Lyric Ticker */
 .stage-lyric-ticker {
@@ -649,8 +668,10 @@ body.vinyl-on.playing .tonearm-svg { transform: rotate(3deg); }
 .ticker-wave {
   display: inline-flex; align-items: flex-end; gap: 2px; height: 11px; flex: none;
 }
+/* the bars are scaled, not resized: a height animation re-lays the page out every frame */
 .ticker-wave i {
-  width: 2px; height: 3px; border-radius: 1px; background: var(--accent); opacity: 0.65;
+  width: 2px; height: 11px; border-radius: 1px; background: var(--accent); opacity: 0.65;
+  transform-origin: bottom; transform: scaleY(0.28);
 }
 body.playing .ticker-wave i { animation: eq 0.9s ease-in-out infinite; opacity: 1; }
 .ticker-wave i:nth-child(2) { animation-delay: -0.25s !important; }
@@ -1082,11 +1103,11 @@ body.ios .volume input { display: none; }
 .row.current .idx b { display: none; }
 .row.current .idx .eq { display: inline-flex; }
 .eq { gap: 2.5px; align-items: flex-end; height: 14px; }
-.eq i { width: 3px; height: 4px; border-radius: 1.5px; background: var(--accent); }
+.eq i { width: 3px; height: 14px; border-radius: 1.5px; background: var(--accent); transform-origin: bottom; transform: scaleY(0.29); }
 body.playing .row.current .eq i { animation: eq 0.85s ease-in-out infinite; }
 .eq i:nth-child(2) { animation-delay: -0.28s !important; }
 .eq i:nth-child(3) { animation-delay: -0.56s !important; }
-@keyframes eq { 0%, 100% { height: 4px; } 50% { height: 14px; } }
+@keyframes eq { 0%, 100% { transform: scaleY(0.29); } 50% { transform: scaleY(1); } }
 
 .thumb {
   position: relative; width: 48px; height: 48px; border-radius: 10px;
@@ -1159,10 +1180,9 @@ body.playing .row.current .eq i { animation: eq 0.85s ease-in-out infinite; }
 .lyrics p {
   margin: 0; padding: 10px 14px; border-radius: 14px; cursor: pointer;
   font-size: clamp(18px, 1.8vw, 26px); line-height: 1.42; font-weight: 700;
-  color: var(--text); opacity: 0.25;
-  filter: blur(0.5px);
+  color: var(--text); opacity: 0.28;
   transform-origin: left center;
-  transition: opacity 0.38s var(--ease), transform 0.38s var(--ease), filter 0.38s var(--ease), background 0.2s, text-shadow 0.38s;
+  transition: opacity 0.38s var(--ease), transform 0.38s var(--ease), background 0.2s, text-shadow 0.38s;
 }
 body.theater-on .lyrics p {
   font-size: clamp(21px, 2.2vw, 31px);
@@ -1172,11 +1192,9 @@ body.theater-on .lyrics p {
 .lyrics p:hover {
   background: var(--surface);
   opacity: 0.68;
-  filter: blur(0);
 }
 .lyrics p.on {
   opacity: 1;
-  filter: blur(0);
   transform: scale(1.03);
   color: var(--text);
   text-shadow: 0 4px 28px rgba(var(--accent-rgb), 0.45);
@@ -1305,6 +1323,8 @@ select.field option { background: var(--bg-elev); color: var(--text); }
   .search { height: 40px; padding: 0 12px; }
   .search-key, .hide-mobile { display: none !important; }
   .top-actions { gap: 2px; }
+  /* 今日电台 and 导入歌单 are on 探索发现 and in the tabs: the search box gets their room */
+  .top-actions .pill { display: none; }
   .pill { width: 38px; height: 38px; background: none; border: 0; }
   .quota { display: none !important; }
 
@@ -1350,6 +1370,8 @@ select.field option { background: var(--bg-elev); color: var(--text); }
   .mini .icon-btn .icon { width: 24px; height: 24px; }
 
   .toast { bottom: calc(var(--mini) + 14px + var(--safe-b)); }
+  /* over the full-screen player the controls sit at the bottom: the note shows under the bar */
+  body.sheet-open .toast { top: calc(env(safe-area-inset-top, 0px) + 58px); bottom: auto; }
 
   .stage {
     position: fixed; inset: 0; z-index: 50; justify-content: flex-start; gap: 12px;
@@ -1373,7 +1395,6 @@ select.field option { background: var(--bg-elev); color: var(--text); }
   .stage-lyrics .lyrics { padding: 20vh 4px 28vh; }
   .stage-lyrics .lyrics p { font-size: 21px; }
   body.sheet-lyrics .turntable-wrap { visibility: hidden; }
-  #btnLyrics { display: none; }
   .np-title { font-size: 22px; }
   .np-actions { justify-content: center; }
   .stage-row { gap: 12px; }
@@ -1385,6 +1406,10 @@ select.field option { background: var(--bg-elev); color: var(--text); }
   .menu.sheet button { height: 46px; font-size: 15px; }
   .up-add { grid-template-columns: 1fr; }
   .up-add .span2 { grid-column: auto; }
+}
+
+@media (max-width: 400px) {
+  .tabs button { padding: 0 10px; }
 }
 
 @media (max-width: 860px) and (max-height: 640px) {

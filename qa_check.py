@@ -76,6 +76,26 @@ def main() -> int:
     ok("library 200", c.get("/api/library").status_code == 200)
     ok("static app.js", c.get("/static/app.js").status_code == 200)
     ok("embed page", c.get("/embed?id=1").status_code == 200)
+    ok("webp mimetype", c.get("/static/logo.webp").headers.get("Content-Type") == "image/webp")
+    ok("theme before paint", html.index('localStorage.getItem("kazam.theme")') < html.index("style.css"))
+    ok("playlist bad id 400", c.get("/api/playlist/abc").status_code == 400)
+
+    # the cover proxy: listed hosts by suffix, default ports, public addresses only
+    for url, want in [
+        ("https://p1.music.126.net/a.jpg", True),
+        ("https://y.gtimg.cn/music/a.jpg", True),
+        ("http://qq.com.localtest.me/a.png", False),
+        ("https://evilqq.com/a.jpg", False),
+        ("https://p1.music.126.net:8080/a.jpg", False),
+        ("https://u:p@p1.music.126.net/a.jpg", False),
+    ]:
+        ok("cover host " + url, k.cover_host_ok(url) is want)
+    ok("public host check", k._public_host("p1.music.126.net") and not k._public_host("localhost"))
+    ok(
+        "cover proxy refuses loopback",
+        c.get("/api/cover-proxy?url=http://qq.com.localtest.me:8080/static/logo.png").status_code == 403,
+    )
+    admin = {"X-Admin-Token": k.make_admin_token(300)}
 
     # live path (best-effort)
     live_ok = False
@@ -93,9 +113,15 @@ def main() -> int:
                     st.status_code in (200, 206) and len(st.data) > 0,
                     f"status={st.status_code} cache={st.headers.get('X-Kazam-Cache')}",
                 )
-                cr = c.post("/api/cache/" + sid)
-                cj = cr.get_json() or {}
-                ok("live cache", cr.status_code == 200 and cj.get("ok"), str(cj.get("error")))
+                # cache and drop again only a song that was not cached before:
+                # never delete a cached song something else relies on
+                if k.is_cached(sid):
+                    ok("live cache (skipped: already cached)", True, sid)
+                    cj = {}
+                else:
+                    cr = c.post("/api/cache/" + sid, headers=admin)
+                    cj = cr.get_json() or {}
+                    ok("live cache", cr.status_code == 200 and cj.get("ok"), str(cj.get("error")))
                 if cj.get("ok"):
                     st2 = c.get(
                         "/api/stream/" + sid, headers={"Range": "bytes=0-1023"}
@@ -105,7 +131,7 @@ def main() -> int:
                         st2.headers.get("X-Kazam-Cache") == "hit",
                         st2.headers.get("X-Kazam-Cache"),
                     )
-                    c.delete("/api/cache/" + sid)
+                    c.delete("/api/cache/" + sid, headers=admin)
     except Exception as e:
         ok("live suite exception", False, str(e))
     ok("live parse available", live_ok, "upstream reachable" if live_ok else "upstream fail")

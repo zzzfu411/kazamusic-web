@@ -5,17 +5,20 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
+import mimetypes
 import random
 import re
+import socket
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urljoin, urlparse
 
 import requests
 from flask import Flask, Response, jsonify, render_template, request, send_file, send_from_directory
@@ -28,6 +31,10 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 log = logging.getLogger("kazam")
+
+# Python 3.10 (the server's) has no .webp entry, so the WebP artwork under
+# /static went out as application/octet-stream.
+mimetypes.add_type("image/webp", ".webp")
 
 app = Flask(
     __name__,
@@ -577,30 +584,90 @@ def local_audio_response(path: Path, headers: dict[str, str]) -> Response:
     return Response(gen, status=status, mimetype=ct, headers={**file_headers, **headers})
 
 
-def cover_host_ok(url: str) -> bool:
+# Hosts the cover proxy may fetch from, each with its subdomains: NetEase, the
+# Meting pic APIs, chksz and the QQ / Kugou / Kuwo / Migu CDNs behind ORS.
+# Always a suffix match, never a substring: "qq.com.example.net" is not QQ.
+_COVER_SUFFIXES = tuple(config.COVER_HOST_SUFFIXES) + (
+    "qijieya.cn",
+    "injahow.cn",
+    "paugram.com",
+    "chksz.com",
+    "gtimg.cn",
+    "qq.com",
+    "kugou.com",
+    "kuwo.cn",
+    "migu.cn",
+    "ors.de5.net",
+)
+_source_hosts = TTLCache(maxsize=2)
+
+
+def _upstream_source_hosts() -> tuple[str, ...]:
+    """Hosts of the configured upstream sources (a custom Meting mirror serves covers too)."""
+    hit = _source_hosts.get("hosts")
+    if hit is not None:
+        return hit
+    hosts: set[str] = set()
     try:
-        host = (urlparse(url).hostname or "").lower()
+        import runtime_settings
+
+        for src in runtime_settings.list_sources():
+            host = (urlparse(str(src.get("endpoint") or "")).hostname or "").lower()
+            if host:
+                hosts.add(host)
+    except Exception:
+        pass
+    out = tuple(sorted(hosts))
+    _source_hosts.set("hosts", out, 60)
+    return out
+
+
+def _host_listed(host: str, suffixes: tuple[str, ...]) -> bool:
+    return any(host == s or host.endswith("." + s) for s in suffixes)
+
+
+def cover_host_ok(url: str) -> bool:
+    """http(s) on the default port to a listed cover host — nothing else."""
+    try:
+        u = urlparse(url)
+        host = (u.hostname or "").lower().rstrip(".")
+        port = u.port  # raises ValueError on a malformed port
     except Exception:
         return False
-    if not host:
+    if u.scheme not in ("http", "https") or not host or u.username or u.password:
         return False
-    # allow meting pic proxies + netease / qq / kugou / kuwo / migu CDNs
-    extra = (
-        "qijieya.cn",
-        "injahow.cn",
-        "meting",
-        "paugram.com",
-        "chksz",
-        "gtimg.cn",
-        "qq.com",
-        "kugou.com",
-        "kuwo.cn",
-        "migu.cn",
-        "ors.de5.net",
-    )
-    if any(x in host for x in extra):
-        return True
-    return any(host == s or host.endswith("." + s) for s in config.COVER_HOST_SUFFIXES)
+    if port is not None and port not in (80, 443):
+        return False
+    return _host_listed(host, _COVER_SUFFIXES) or _host_listed(host, _upstream_source_hosts())
+
+
+def _public_host(host: str) -> bool:
+    """Every address the name resolves to is public (no loopback, LAN, link-local, …)."""
+    try:
+        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+    except OSError:
+        return False
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(str(info[4][0]).split("%", 1)[0])
+        except ValueError:
+            return False
+        if not ip.is_global:
+            return False
+    return bool(infos)
+
+
+def fetch_cover(url: str, timeout: Any = (5, 12), hops: int = 3) -> requests.Response | None:
+    """GET a cover from a listed public host; every redirect is checked again."""
+    for _ in range(hops + 1):
+        if not cover_host_ok(url) or not _public_host((urlparse(url).hostname or "").lower()):
+            return None
+        r = SESSION.get(url, timeout=timeout, allow_redirects=False)
+        location = r.headers.get("Location") if r.is_redirect else None
+        if not location:
+            return r
+        url = urljoin(url, location)
+    return None
 
 
 def make_download_headers(filename: str, fallback: str = "download") -> dict:
@@ -781,8 +848,8 @@ def cache_song(sid: str, level: str | None = None) -> dict:
     cover_path = config.CACHE_DIR / f"{sid}.cover.jpg"
     if cover_url and cover_host_ok(cover_url):
         try:
-            cr = SESSION.get(cover_url, timeout=20)
-            if cr.status_code == 200 and cr.content:
+            cr = fetch_cover(cover_url, timeout=20)
+            if cr is not None and cr.status_code == 200 and cr.content:
                 cover_path.write_bytes(cr.content)
         except Exception as e:
             log.warning("cover cache failed for %s: %s", sid, e)
@@ -1298,8 +1365,19 @@ def lyric(sid: str):
 _lyric_cache = TTLCache(maxsize=512)
 
 
+# A playlist read is one upstream call (chksz counts it against the daily
+# quota); the 灵感频道 cards open the same charts over and over.
+_playlist_cache = TTLCache(maxsize=64)
+
+
 @app.route("/api/playlist/<pid>")
 def playlist(pid: str):
+    pid = pid.strip()
+    if not pid.isdigit():
+        return jsonify({"ok": False, "error": "bad playlist id"}), 400
+    hit = _playlist_cache.get(pid)
+    if hit is not None:
+        return jsonify({"ok": True, "data": hit})
     try:
         tracks = upstream.get_playlist_tracks(pid)
         songs = []
@@ -1312,6 +1390,8 @@ def playlist(pid: str):
             if t.get("picUrl") and not n.get("cover"):
                 n["cover"] = try_https(t["picUrl"])
             songs.append(n)
+        if songs:
+            _playlist_cache.set(pid, songs, 30 * 60)
         return jsonify({"ok": True, "data": songs})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -1376,7 +1456,9 @@ def cover_proxy():
             mimetype = _image_mimetype(f.read(16)) or "image/jpeg"
         return send_file(path, mimetype=mimetype, max_age=7 * 86400, conditional=True)
     try:
-        r = SESSION.get(fetch_url, timeout=(5, 12))
+        r = fetch_cover(fetch_url)
+        if r is None:
+            return jsonify({"ok": False, "error": "host not allowed"}), 403
         mimetype = _image_mimetype(r.content[:16]) if r.status_code == 200 else None
         if not mimetype or len(r.content) > 8 * 1024 * 1024:
             return "", 404

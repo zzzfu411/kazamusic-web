@@ -7,6 +7,13 @@
   var base = (window.KAZAM_PUBLIC_BASE || location.origin).replace(/\/$/, "");
   var $ = function (s) { return document.getElementById(s); };
   var audio = $("audio"), title = $("title"), artist = $("artist"), cover = $("cover");
+  var fallback = document.querySelector(".cover-fallback");
+  // the default record picture only for a song that has no cover (40 KB otherwise saved)
+  function showFallback() {
+    if (!fallback || !fallback.hidden) return;
+    fallback.src = fallback.getAttribute("data-src");
+    fallback.hidden = false;
+  }
 
   if (!id) { title.textContent = "缺少歌曲 ID"; $("btnPlay").disabled = true; return; }
   $("openFull").href = base + "/?play=" + encodeURIComponent(id);
@@ -23,18 +30,20 @@
   fetch("/api/resolve/" + encodeURIComponent(id))
     .then(function (r) { return r.json(); })
     .then(function (j) {
-      if (!j.ok || !j.data) { title.textContent = "ID " + id; return; }
+      if (!j.ok || !j.data) { title.textContent = "ID " + id; showFallback(); return; }
       title.textContent = j.data.name || id;
       artist.textContent = j.data.artist || "";
       var src = coverUrl(j.data.cover, 160);
       if (src) {
         cover.onload = function () { cover.hidden = false; };
-        cover.onerror = function () { cover.hidden = true; };
+        cover.onerror = function () { cover.hidden = true; showFallback(); };
         cover.src = src;
         $("art").style.backgroundImage = 'url("' + src.replace(/"/g, "%22") + '")';
+      } else {
+        showFallback();
       }
     })
-    .catch(function () { title.textContent = "ID " + id; });
+    .catch(function () { title.textContent = "ID " + id; showFallback(); });
 
   function sync() {
     $("iconPlay").hidden = !audio.paused;

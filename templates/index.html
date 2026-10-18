@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
 <meta name="referrer" content="no-referrer">
-<meta name="theme-color" content="#090d16" id="metaThemeColor">
+<meta name="theme-color" content="#080c15" id="metaThemeColor">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="description" content="KAZAM — 沉浸式高解析在线听歌、电台与歌词工具">
@@ -16,6 +16,17 @@
 <link rel="dns-prefetch" href="https://p2.music.126.net">
 <link rel="dns-prefetch" href="https://p3.music.126.net">
 <link rel="dns-prefetch" href="https://p4.music.126.net">
+<script>
+  // the saved theme goes on before the first paint (app.js runs last)
+  try {
+    (function (t) {
+      var bg = { aurora: "#080c15", apple: "#09090c", daylight: "#eef2f9", emerald: "#06100e", sunset: "#0e0816" }[t];
+      if (!bg) return;
+      document.documentElement.setAttribute("data-theme", t);
+      document.getElementById("metaThemeColor").setAttribute("content", bg);
+    })(localStorage.getItem("kazam.theme"));
+  } catch (e) {}
+</script>
 <link rel="stylesheet" href="{{ asset('style.css') }}">
 <script>
   window.KAZAM_PUBLIC_BASE = {{ public_base|tojson }};
@@ -24,6 +35,7 @@
 </script>
 </head>
 <body class="vinyl-on">
+<script>try { if (localStorage.getItem("kazam.vinylMode") === "0") document.body.classList.remove("vinyl-on"); } catch (e) {}</script>
 <svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
@@ -150,7 +162,7 @@
         </div>
       </div>
     </div>
-    <button type="button" class="icon-btn hide-mobile" id="btnTheater" title="沉浸大屏模式 (F)" aria-label="沉浸大屏模式">
+    <button type="button" class="icon-btn hide-mobile" id="btnTheater" title="沉浸模式 (F)" aria-label="沉浸模式">
       <svg class="icon"><use href="#i-expand"/></svg>
     </button>
     <button type="button" class="icon-btn" id="btnSleep" title="睡眠定时关闭" aria-label="睡眠定时">
@@ -216,10 +228,12 @@
           <div class="vinyl-grooves" aria-hidden="true"></div>
           <img class="cover-default" src="{{ asset('default-cover.webp') }}" alt="" width="600" height="600" decoding="async">
           <img id="coverImg" alt="" width="600" height="600" decoding="async" referrerpolicy="no-referrer">
-          <div class="vinyl-sheen" aria-hidden="true"></div>
           <div class="vinyl-spindle" aria-hidden="true"></div>
           <svg class="cover-ph icon"><use href="#i-note"/></svg>
         </div>
+        <!-- light falls on the record from one place, so the shine stays while the record turns -->
+        <div class="vinyl-glare" aria-hidden="true"></div>
+        <div class="vinyl-sheen" aria-hidden="true"></div>
       </div>
       <div class="stage-lyrics" id="stageLyrics" hidden></div>
     </div>
@@ -291,6 +305,7 @@
   </section>
 
   <section class="panel" aria-label="歌曲列表">
+    <button type="button" class="icon-btn theater-exit" id="btnTheaterExit" title="退出沉浸模式 (F / Esc)" aria-label="退出沉浸模式"><svg class="icon"><use href="#i-collapse"/></svg></button>
     <div class="panel-head">
       <div class="tabs" role="tablist">
         <button type="button" role="tab" data-view="search" aria-selected="true">探索发现</button>
@@ -304,8 +319,8 @@
           <svg class="icon"><use href="#i-search"/></svg>
           <input type="search" id="listFilter" placeholder="筛选列表…" autocomplete="off" aria-label="筛选当前列表">
         </div>
-        <button type="button" class="tool" data-for="playlist" id="btnImportPl" title="从 JSON 文件导入"><svg class="icon"><use href="#i-upload"/></svg><span>导入</span></button>
-        <div class="tool-wrap" data-for="playlist radio">
+        <button type="button" class="tool" hidden data-for="playlist" id="btnImportPl" title="从 JSON 文件导入"><svg class="icon"><use href="#i-upload"/></svg><span>导入</span></button>
+        <div class="tool-wrap" hidden data-for="playlist radio">
           <button type="button" class="tool" id="btnExportPl" aria-haspopup="menu" aria-expanded="false"><svg class="icon"><use href="#i-download"/></svg><span>导出</span></button>
           <div class="pop" id="exportMenu" role="menu" hidden>
             <button type="button" role="menuitem" data-export="json">JSON 备份（可再导入）</button>
@@ -313,10 +328,10 @@
             <button type="button" role="menuitem" data-export="txt">纯文本曲目单</button>
           </div>
         </div>
-        <button type="button" class="tool" data-for="playlist" id="btnClearPl"><svg class="icon"><use href="#i-trash"/></svg><span>清空</span></button>
-        <button type="button" class="tool" data-for="radio" id="btnReloadRadio"><svg class="icon"><use href="#i-refresh"/></svg><span>换一批</span></button>
-        <button type="button" class="tool" data-for="radio" id="btnClearRadio"><svg class="icon"><use href="#i-trash"/></svg><span>清空</span></button>
-        <button type="button" class="tool" data-for="library" id="btnRefreshLib"><svg class="icon"><use href="#i-refresh"/></svg><span>刷新</span></button>
+        <button type="button" class="tool" hidden data-for="playlist" id="btnClearPl"><svg class="icon"><use href="#i-trash"/></svg><span>清空</span></button>
+        <button type="button" class="tool" hidden data-for="radio" id="btnReloadRadio"><svg class="icon"><use href="#i-refresh"/></svg><span>换一批</span></button>
+        <button type="button" class="tool" hidden data-for="radio" id="btnClearRadio"><svg class="icon"><use href="#i-trash"/></svg><span>清空</span></button>
+        <button type="button" class="tool" hidden data-for="library" id="btnRefreshLib"><svg class="icon"><use href="#i-refresh"/></svg><span>刷新</span></button>
       </div>
     </div>
     <div class="panel-sub-bar">

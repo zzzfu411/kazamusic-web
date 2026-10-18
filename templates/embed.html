@@ -19,7 +19,8 @@
     <div class="art" id="art"></div>
     <div class="art-shade"></div>
     <div class="cover-wrap">
-      <img class="cover-fallback" src="{{ asset('default-cover.webp') }}" alt="">
+      <!-- loaded only for a song without a cover of its own -->
+      <img class="cover-fallback" data-src="{{ asset('default-cover.webp') }}" alt="" hidden>
       <img class="cover" id="cover" alt="" hidden>
     </div>
     <div class="meta">
@@ -32,7 +33,7 @@
       <svg viewBox="0 0 24 24" id="iconPause" hidden><rect x="6.5" y="5" width="4" height="14" rx="1.2"/><rect x="13.5" y="5" width="4" height="14" rx="1.2"/></svg>
     </button>
     <a class="open" id="openFull" href="/" target="_blank" rel="noopener" title="打开完整播放器">
-      <img src="{{ asset('logo.webp') }}" alt="" width="13" height="13">
+      <img src="{{ asset('logo-32.webp') }}" alt="" width="13" height="13">
       <span>KAZAM ↗</span>
     </a>
   </div>

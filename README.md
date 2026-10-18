@@ -66,7 +66,7 @@ GET /api/parse?q=https://music.163.com/song?id=19723756
 
 ### 管理员与服务端缓存
 
-连点左上角 KAZAM 五次，输入管理员密码（`.env` 的 `ADMIN_PASSWORD`）。之后：
+连点左上角 KAZAM 五次，输入管理员密码（`.env` 的 `ADMIN_PASSWORD`）。这个入口写在页面上，所以 nginx 给 `/api/admin/login` 限了速：同一地址每分钟 6 次（可连试 4 次），再多回 429，页面会提示「试得太频繁」（见 `deploy/music.yeuxark.com.nginx`）。之后：
 
 1. 播放页的「缓存」或歌曲菜单里的「缓存到服务器」把音频写入 `data/cache/{id}.audio.*`，封面、歌词一并保存
 2. 之后 `/api/stream/{id}` **优先读本地文件**（响应头 `X-Kazam-Cache: hit`）
@@ -84,6 +84,8 @@ DELETE /api/cache/{id}           # 删除缓存（管理员）
 
 - 搜索结果在内存里缓存 10 分钟，歌词 6 小时；今日电台的关键词并行搜索
 - 封面：网易图片按显示尺寸向网易 CDN 要（`param=NyN`）；`/api/cover-proxy?url=…&size=` 也会缩放并缓存到 `data/cache/_covers/`
+- 歌单（`/api/playlist/{id}`）读到后在内存里留 30 分钟：「灵感频道」的卡片打开的是固定的网易云歌单（官方榜单优先），反复点不重复花额度
+- 播放中只有显卡在动：均衡器小条用 `scaleY` 而不是改高度，背景光球只在播放时漂；页面空闲时不画任何东西
 - 未缓存的歌：一次 GET 直达 CDN 并透传 Range（不再先探测、HEAD），链接失效自动重新解析一次
 - 同一首歌的上游查询合并成一次（播放器同时请求音频和元数据也只花一次额度）
 - 静态文件带内容哈希 `?v=`，缓存一年；nginx 对 JSON / JS / CSS 开 gzip（见 `deploy/`）
@@ -191,6 +193,7 @@ vps_version/
 
 ## 安全与合规提示
 
+- 封面代理 `/api/cover-proxy` 只取名单里的图片域名（`app.py` 的 `_COVER_SUFFIXES` 加上已配置上游源的域名），按**后缀**匹配（`qq.com` 不放行 `qq.com.example.net`），只走 80 / 443，解析出的地址必须是公网地址，每次跳转都重新检查。名单曾按「包含」匹配，`http://qq.com.localtest.me:8080/…` 能让服务器去访问它自己的内网端口；加新的封面来源时只往名单里加域名后缀
 - 上游依赖第三方 `UPSTREAM_API`，可用性不保证
 - 公网部署建议：反代 HTTPS、限流、可选访问密码
 - 仅供个人学习/自用；注意版权与服务条款

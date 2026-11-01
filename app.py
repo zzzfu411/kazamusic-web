@@ -286,6 +286,7 @@ def admin_upstream_add_source():
             endpoint=str(data.get("endpoint") or "").strip(),
             desc=str(data.get("desc") or "").strip(),
             source_id=str(data.get("id") or "").strip() or None,
+            platform=str(data.get("platform") or "").strip() or None,
         )
     except ValueError as e:
         return jsonify({"ok": False, "error": str(e)}), 400
@@ -598,6 +599,8 @@ _COVER_SUFFIXES = tuple(config.COVER_HOST_SUFFIXES) + (
     "kuwo.cn",
     "migu.cn",
     "ors.de5.net",
+    "gdstudio.xyz",
+    "gdstudio.org",
 )
 _source_hosts = TTLCache(maxsize=2)
 
@@ -791,8 +794,13 @@ def cache_song(sid: str, level: str | None = None) -> dict:
     """Download audio (+ cover + lyric) into CACHE_DIR. Idempotent."""
     sid = str(sid).strip()
     level = parse_audio_level(level)
-    # allow ORS composite ids (ors:qq:xxx) and plain numeric netease ids
-    if not (re.fullmatch(r"\d+", sid) or re.fullmatch(r"ors:[a-z]{2}:.+", sid, re.I)):
+    # numeric netease ids, plus composite ids minted by ORS / GD / flac.music.hi.cn
+    if not (
+        re.fullmatch(r"\d+", sid)
+        or re.fullmatch(r"ors:[a-z]{2}:.+", sid, re.I)
+        or re.fullmatch(r"gd:[a-z0-9_]+:[A-Za-z0-9._:-]+", sid, re.I)
+        or re.fullmatch(r"hi:(kuwo|wyy):[A-Za-z0-9._:-]+", sid, re.I)
+    ):
         raise ValueError("invalid song id")
 
     existing = find_cached_audio(sid)

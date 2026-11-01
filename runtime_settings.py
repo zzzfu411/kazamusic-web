@@ -57,6 +57,56 @@ BUILTIN_SOURCES: list[dict[str, Any]] = [
         "builtin": True,
         "enabled": True,
     },
+    {
+        "id": "gd_netease",
+        "name": "GD音乐台 · 网易云",
+        "kind": "gd",
+        "endpoint": "https://music.gdstudio.xyz",
+        "desc": "GD Studio 公开接口，网易云，可出无损",
+        "platform": "netease",
+        "builtin": True,
+        "enabled": True,
+    },
+    {
+        "id": "gd_tencent",
+        "name": "GD音乐台 · QQ",
+        "kind": "gd",
+        "endpoint": "https://music.gdstudio.xyz",
+        "desc": "GD Studio 公开接口，QQ 音乐",
+        "platform": "tencent",
+        "builtin": True,
+        "enabled": True,
+    },
+    {
+        "id": "gd_kuwo",
+        "name": "GD音乐台 · 酷我",
+        "kind": "gd",
+        "endpoint": "https://music.gdstudio.xyz",
+        "desc": "GD Studio 公开接口，酷我",
+        "platform": "kuwo",
+        "builtin": True,
+        "enabled": True,
+    },
+    {
+        "id": "hi_wyy",
+        "name": "无损下载 · 网易云",
+        "kind": "hi",
+        "endpoint": "https://flac.music.hi.cn",
+        "desc": "flac.music.hi.cn，网易云搜索 / FLAC",
+        "platform": "wyy",
+        "builtin": True,
+        "enabled": True,
+    },
+    {
+        "id": "hi_kuwo",
+        "name": "无损下载 · 酷我",
+        "kind": "hi",
+        "endpoint": "https://flac.music.hi.cn",
+        "desc": "flac.music.hi.cn，酷我搜索 / FLAC",
+        "platform": "kuwo",
+        "builtin": True,
+        "enabled": True,
+    },
 ]
 
 # Suggested extras (not auto-enabled; admin can one-click add)
@@ -97,6 +147,14 @@ CATALOG: list[dict[str, Any]] = [
         "endpoint": "https://music.ors.de5.net",
         "desc": "文档 https://music.ors.de5.net/docs — QQ/kg/kw/mg，音频走 CF",
         "platform": "qq",
+    },
+    {
+        "id": "gd_qobuz",
+        "name": "GD音乐台 · Qobuz",
+        "kind": "gd",
+        "endpoint": "https://music.gdstudio.xyz",
+        "desc": "GD Studio，Qobuz Hi-Res。同一 endpoint 可改 platform",
+        "platform": "qobuz",
     },
 ]
 
@@ -179,7 +237,7 @@ def _migrate(data: dict[str, Any]) -> dict[str, Any]:
             continue
         sid = str(s.get("id") or "").strip()
         kind = str(s.get("kind") or "meting").strip().lower()
-        if kind not in ("meting", "chksz", "ors"):
+        if kind not in ("meting", "chksz", "ors", "gd", "hi"):
             continue
         if not sid:
             continue
@@ -211,6 +269,10 @@ def _migrate(data: dict[str, Any]) -> dict[str, Any]:
         }
         if kind == "ors":
             entry["platform"] = str(s.get("platform") or "qq").strip().lower() or "qq"
+        elif kind == "gd":
+            entry["platform"] = str(s.get("platform") or "netease").strip().lower() or "netease"
+        elif kind == "hi":
+            entry["platform"] = str(s.get("platform") or "wyy").strip().lower() or "wyy"
         cleaned.append(entry)
     # ensure builtins present (merge missing)
     for b in BUILTIN_SOURCES:
@@ -303,10 +365,11 @@ def add_source(
     endpoint: str,
     desc: str = "",
     source_id: str | None = None,
+    platform: str | None = None,
 ) -> dict[str, Any]:
     kind = str(kind or "").strip().lower()
-    if kind not in ("meting", "chksz", "ors"):
-        raise ValueError("kind must be meting|chksz|ors")
+    if kind not in ("meting", "chksz", "ors", "gd", "hi"):
+        raise ValueError("kind must be meting|chksz|ors|gd|hi")
     endpoint = _norm_endpoint(endpoint, kind)
     name = (name or "").strip() or kind
     sid = (source_id or "").strip().lower() or _slug_id(name, kind)
@@ -315,6 +378,14 @@ def add_source(
         raise ValueError("invalid id")
     if sid == "auto":
         raise ValueError("id 'auto' is reserved")
+    if kind == "gd":
+        platform = (platform or "netease").strip().lower() or "netease"
+    elif kind == "hi":
+        platform = (platform or "wyy").strip().lower() or "wyy"
+    elif kind == "ors":
+        platform = (platform or "qq").strip().lower() or "qq"
+    else:
+        platform = ""
 
     with _LOCK:
         data = _read()
@@ -322,7 +393,10 @@ def add_source(
         for s in sources:
             if s["id"] == sid:
                 raise ValueError(f"source id already exists: {sid}")
-            if s.get("endpoint") == endpoint and s.get("kind") == kind:
+            same_ep = s.get("endpoint") == endpoint and s.get("kind") == kind
+            if same_ep and kind not in ("gd", "hi", "ors"):
+                raise ValueError(f"endpoint already registered as {s['id']}")
+            if same_ep and kind in ("gd", "hi", "ors") and str(s.get("platform") or "") == platform:
                 raise ValueError(f"endpoint already registered as {s['id']}")
         entry = {
             "id": sid,
@@ -335,7 +409,11 @@ def add_source(
             "added_at": int(time.time()),
         }
         if kind == "ors":
-            entry["platform"] = "qq"
+            entry["platform"] = (platform or "qq").strip().lower() or "qq"
+        elif kind == "gd":
+            entry["platform"] = (platform or "netease").strip().lower() or "netease"
+        elif kind == "hi":
+            entry["platform"] = (platform or "wyy").strip().lower() or "wyy"
         sources.append(entry)
         data["sources"] = sources
         _write(data)

@@ -344,6 +344,147 @@ def _search_ors(keyword: str, limit: int, src: dict) -> list[dict]:
     return out
 
 
+def _row_from_external(s: dict, source_id: str) -> dict:
+    artist = s.get("artist") or ""
+    cover = s.get("picUrl") or ""
+    return {
+        "id": s["id"],
+        "name": s.get("name") or "",
+        "artist": artist,
+        "ar": [{"name": artist}] if artist else [],
+        "al": {"name": s.get("album") or "", "picUrl": cover},
+        "duration": s.get("duration") or 0,
+        "picUrl": cover,
+        "platform": s.get("platform") or "",
+        "native_id": s.get("native_id") or "",
+        "_source": source_id,
+    }
+
+
+def _src_for_kind(kind: str, platform: str | None = None) -> dict:
+    sources = [s for s in _active_sources() if s.get("kind") == kind]
+    if platform:
+        for s in sources:
+            if str(s.get("platform") or "") == platform:
+                return s
+    if sources:
+        return sources[0]
+    if kind == "gd":
+        return {
+            "id": "gd_netease",
+            "kind": "gd",
+            "endpoint": "https://music.gdstudio.xyz",
+            "platform": platform or "netease",
+        }
+    return {
+        "id": "hi_wyy",
+        "kind": "hi",
+        "endpoint": "https://flac.music.hi.cn",
+        "platform": platform or "wyy",
+    }
+
+
+def _search_gd(keyword: str, limit: int, src: dict) -> list[dict]:
+    import gd_api
+
+    songs = gd_api.search(
+        keyword,
+        source=str(src.get("platform") or "netease"),
+        limit=limit,
+        base=src.get("endpoint"),
+    )
+    return [_row_from_external(s, src.get("id") or "gd") for s in songs]
+
+
+def _search_hi(keyword: str, limit: int, src: dict) -> list[dict]:
+    import hiflac_api
+
+    songs = hiflac_api.search(
+        keyword,
+        source=str(src.get("platform") or "kuwo"),
+        limit=limit,
+        base=src.get("endpoint"),
+    )
+    return [_row_from_external(s, src.get("id") or "hi") for s in songs]
+
+
+def _meta_gd(sid: str, src: dict, level: str | None = None) -> dict:
+    import gd_api
+
+    parsed = gd_api.parse_sid(sid)
+    platform = str(src.get("platform") or "netease")
+    native = sid
+    if parsed:
+        platform, native = parsed
+    meta = gd_api.song_meta(
+        native,
+        source=platform,
+        level=level,
+        base=src.get("endpoint"),
+    )
+    meta["_source"] = src.get("id") or "gd"
+    return meta
+
+
+def _meta_hi(sid: str, src: dict, level: str | None = None) -> dict:
+    import hiflac_api
+
+    parsed = hiflac_api.parse_sid(sid)
+    platform = str(src.get("platform") or "kuwo")
+    native = sid
+    if parsed:
+        platform, native = parsed
+    meta = hiflac_api.song_meta(
+        native,
+        source=platform,
+        level=level,
+        base=src.get("endpoint"),
+    )
+    meta["_source"] = src.get("id") or "hi"
+    return meta
+
+
+def _lyric_from_gd(sid: str, src: dict) -> dict | None:
+    import gd_api
+
+    parsed = gd_api.parse_sid(sid)
+    if not parsed:
+        return None
+    platform, native = parsed
+    extra = gd_api.recall(gd_api.make_sid(platform, native))
+    lyric_id = str(extra.get("lyric_id") or native)
+    try:
+        text = gd_api.lyric(lyric_id, source=platform, base=src.get("endpoint"))
+    except Exception as e:
+        log.warning("gd lyric failed: %s", e)
+        return None
+    if not (text.get("lrc") or text.get("tlyric")):
+        return None
+    return {
+        "lrc": text.get("lrc") or "",
+        "tlyric": text.get("tlyric") or "",
+        "romalrc": "",
+        "klyric": "",
+    }
+
+
+def _lyric_from_hi(sid: str, src: dict) -> dict | None:
+    import hiflac_api
+
+    parsed = hiflac_api.parse_sid(sid)
+    if not parsed:
+        return None
+    platform, native = parsed
+    try:
+        text = hiflac_api.lyric(native, source=platform, base=src.get("endpoint"))
+    except Exception as e:
+        log.warning("hi lyric failed: %s", e)
+        return None
+    if not text.get("lrc"):
+        return None
+    return {"lrc": text.get("lrc") or "", "tlyric": "", "romalrc": "", "klyric": ""}
+
+
 def _search_meting(
     keyword: str,
     limit: int,
@@ -415,6 +556,10 @@ def search_songs(keyword: str, limit: int = 30) -> list[dict]:
             )
         if src.get("kind") == "ors":
             return _search_ors(keyword, limit, src=src)
+        if src.get("kind") == "gd":
+            return _search_gd(keyword, limit, src=src)
+        if src.get("kind") == "hi":
+            return _search_hi(keyword, limit, src=src)
         return []
 
     if provider == "auto":
@@ -725,7 +870,29 @@ def get_song_meta(sid: str, level: str | None = None) -> dict:
             )
         if src.get("kind") == "ors":
             return _meta_ors(sid, src=src, level=level)
+        if src.get("kind") == "gd":
+            return _meta_gd(sid, src=src, level=level)
+        if src.get("kind") == "hi":
+            return _meta_hi(sid, src=src, level=level)
         return {}
+
+    # Composite ids stay on the source that minted them.
+    try:
+        import gd_api
+
+        parsed = gd_api.parse_sid(sid)
+        if parsed:
+            return _meta_gd(sid, src=_src_for_kind("gd", parsed[0]), level=level)
+    except Exception as e:
+        log.debug("gd sid detect: %s", e)
+    try:
+        import hiflac_api
+
+        parsed = hiflac_api.parse_sid(sid)
+        if parsed:
+            return _meta_hi(sid, src=_src_for_kind("hi", parsed[0]), level=level)
+    except Exception as e:
+        log.debug("hi sid detect: %s", e)
 
     # ORS composite ids always go through ors regardless of current provider
     try:
@@ -856,7 +1023,28 @@ def get_lyric(sid: str) -> dict:
             return _lyric_from_meting(sid, bases=[src["endpoint"]])
         if src.get("kind") == "ors":
             return _lyric_from_ors(sid, src=src)
+        if src.get("kind") == "gd":
+            return _lyric_from_gd(sid, src=src)
+        if src.get("kind") == "hi":
+            return _lyric_from_hi(sid, src=src)
         return None
+
+    try:
+        import gd_api
+
+        parsed = gd_api.parse_sid(sid)
+        if parsed:
+            return _lyric_from_gd(sid, _src_for_kind("gd", parsed[0])) or empty
+    except Exception:
+        pass
+    try:
+        import hiflac_api
+
+        parsed = hiflac_api.parse_sid(sid)
+        if parsed:
+            return _lyric_from_hi(sid, _src_for_kind("hi", parsed[0])) or empty
+    except Exception:
+        pass
 
     try:
         import ors_api
@@ -1023,6 +1211,50 @@ def probe_source(
     kind = src.get("kind")
     base = src.get("endpoint") or ""
     checks: list[dict[str, Any]] = []
+
+    if kind in ("gd", "hi"):
+        mod = __import__("gd_api" if kind == "gd" else "hiflac_api")
+        platform = str(src.get("platform") or ("netease" if kind == "gd" else "wyy"))
+
+        def do_probe():
+            return mod.probe(base=base or None, keyword=keyword or "晴天", platform=platform)
+
+        try:
+            pr = do_probe()
+            return {
+                "id": src.get("id"),
+                "name": src.get("name") or src.get("id"),
+                "kind": kind,
+                "endpoint": base,
+                "alive": bool(pr.get("alive")),
+                "ok_count": pr.get("ok_count") or 0,
+                "total": pr.get("total") or 0,
+                "ms": pr.get("ms") or 0,
+                "checks": pr.get("checks") or [],
+                "summary": pr.get("summary") or "",
+            }
+        except Exception as e:
+            return {
+                "id": src.get("id"),
+                "name": src.get("name"),
+                "kind": kind,
+                "endpoint": base,
+                "alive": False,
+                "ok_count": 0,
+                "total": 1,
+                "ms": 0,
+                "checks": [
+                    {
+                        "name": "probe",
+                        "label": "探测",
+                        "ok": False,
+                        "ms": 0,
+                        "detail": "",
+                        "error": str(e)[:160],
+                    }
+                ],
+                "summary": f"探测失败: {e}",
+            }
 
     if kind == "ors":
         import ors_api

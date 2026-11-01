@@ -1980,12 +1980,22 @@
   });
   $("#upBtnShowAdd").addEventListener("click", function () { var f = $("#upAddForm"); f.hidden = !f.hidden; });
   $("#upBtnAddCancel").addEventListener("click", function () { $("#upAddForm").hidden = true; });
+  function syncAddPlatform() {
+    var kind = $("#upAddKind").value;
+    var wrap = $("#upAddPlatformWrap");
+    if (wrap) wrap.hidden = kind !== "gd" && kind !== "hi";
+  }
+  var upAddKind = $("#upAddKind");
+  if (upAddKind) upAddKind.addEventListener("change", syncAddPlatform);
   $("#upBtnAdd").addEventListener("click", function () {
     var endpoint = $("#upAddEndpoint").value.trim();
     if (!endpoint) { toast("请填写 Endpoint URL"); return; }
+    var kind = $("#upAddKind").value;
+    var body = { name: $("#upAddName").value.trim(), kind: kind, endpoint: endpoint, desc: $("#upAddDesc").value.trim() };
+    if (kind === "gd" || kind === "hi") body.platform = $("#upAddPlatform").value;
     adminFetch("/api/admin/upstream/sources", {
       method: "POST",
-      body: { name: $("#upAddName").value.trim(), kind: $("#upAddKind").value, endpoint: endpoint, desc: $("#upAddDesc").value.trim() },
+      body: body,
     }).then(function (j) {
       if (!j.ok) { toast("添加失败：" + (j.error || j._status)); return; }
       upstreamState(j);

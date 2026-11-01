@@ -97,6 +97,9 @@ DELETE /api/cache/{id}           # 删除缓存（管理员）
 - 缓存实际在 `/srv/kazam/cache`（`yeux:www-data`，目录 `2750` 带 setgid，新文件自动归 `www-data` 组），`data/cache` 是指向它的符号链接。nginx（`www-data`）只能读这一个目录，`/home/yeux` 保持 `750` 不对它开放
 - 不要用 `CACHE_DIR` 环境变量搬缓存：`runtime.json` 的位置是 `CACHE_DIR` 的上一级，改了会让后台设置（上游、密钥）找不到。要搬就像上面那样换成符号链接
 - `.env`、`config.py`、`.env.example`、`deploy_test_admin.py` 在服务器上是 `600`（含管理员密码 / 密钥）；改了 `.env` 要 `systemctl restart kazam`（它由 systemd 的 `EnvironmentFile` 读取，`kill -HUP` 不会重读）
+- GD 音乐台和无损站拒绝 Azure 的地址，这两家的请求经 `.env` 的 `KAZAM_UPSTREAM_PROXY` 走 VPS 23 上的中转（`deploy/relay/`：只放行音乐服务器的地址和这几个主机的 80/443，Basic 认证，最多 64 条隧道，以无特权的动态用户运行）
+- 首选源失败时回退到别的源：回退源只给了链接没给歌名时，歌名、歌手、封面先取首选源的，再用 Meting 补；数字 ID 一律原样返回（不会变成 `gd:netease:…`）
+- GD 封面（`/api/gd/pic`）按需查询：同时最多 4 个，一次最多 3+5 秒、不重试，失败记 2 分钟
 
 ---
 

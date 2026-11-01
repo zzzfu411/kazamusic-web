@@ -1,0 +1,31 @@
+# /etc/systemd/system/kazam-relay.service on VPS 23 (23.94.163.91)
+# /root/kazam-relay.env (600): RELAY_TOKEN, RELAY_PORT, RELAY_LISTEN,
+# RELAY_ALLOW_FROM=<the music server's address>; systemd reads it as root
+# before the service drops to its dynamic user.
+[Unit]
+Description=Kazam upstream CONNECT relay (GD / hi)
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=/root/kazam-relay.env
+ExecStart=/usr/bin/python3 /opt/kazam-relay/relay.py
+Restart=always
+RestartSec=2
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+MemoryMax=128M
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target

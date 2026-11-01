@@ -70,6 +70,7 @@ _CLOCK_TTL = 15 * 60
 _pic_cache: dict[tuple[str, str, str], tuple[float, str]] = {}
 _PIC_TTL = 24 * 3600
 _PIC_TTL_MISS = 10 * 60
+_PIC_TTL_FAIL = 2 * 60   # a timeout or error: asked again only after a while
 
 
 def _session() -> requests.Session:
@@ -223,7 +224,7 @@ def sign(value: str, base: str, refresh_clock: bool = False) -> str:
     return gd_md5_hex(payload.encode()).upper()[-8:]
 
 
-def _get(base: str, fields: dict[str, Any], sign_key: str) -> Any:
+def _get(base: str, fields: dict[str, Any], sign_key: str, *, timeout: Any = 15, retry_errors: bool = True) -> Any:
     encoded = {k: js_quote(str(v)) for k, v in fields.items()}
     last_err: Exception | None = None
     for attempt in range(2):
@@ -232,7 +233,7 @@ def _get(base: str, fields: dict[str, Any], sign_key: str) -> Any:
         qs = "&".join(f"{k}={v}" for k, v in encoded.items()) + f"&s={sig}"
         url = f"{base}/api.php?{qs}"
         try:
-            r = SESSION.get(url, timeout=15, headers={"Referer": base + "/"})
+            r = SESSION.get(url, timeout=timeout, headers={"Referer": base + "/"})
             if r.status_code == 401:
                 last_err = RuntimeError("gd 401")
                 continue
@@ -241,6 +242,8 @@ def _get(base: str, fields: dict[str, Any], sign_key: str) -> Any:
         except Exception as e:
             last_err = e
             log.warning("gd get failed: %s", e)
+            if not retry_errors:
+                break   # only a rejected signature (401) is worth a second try
     raise RuntimeError(f"gd request failed: {last_err}")
 
 
@@ -279,21 +282,26 @@ def _pic(base: str, platform: str, pic_id: str) -> str:
     hit = cached_pic(base, platform, pic_id)
     if hit is not None:
         return hit
-    url = ""
+    url, ttl = "", _PIC_TTL_MISS
     try:
+        # a cover is not worth a worker thread for 30 s: one short try
         body = _get(
             _base(base),
             {"types": "pic", "id": pic_id, "source": normalize_platform(platform), "size": 500},
             "id",
+            timeout=(3, 5),
+            retry_errors=False,
         )
         got = (body or {}).get("url") if isinstance(body, dict) else ""
         url = got if isinstance(got, str) and got.startswith("http") else ""
+        if url:
+            ttl = _PIC_TTL
     except Exception as e:
         log.debug("gd pic failed: %s", e)
-        return ""  # transient: not remembered
+        ttl = _PIC_TTL_FAIL   # remembered briefly, so a stall is not asked again at once
     key = (_base(base), normalize_platform(platform), str(pic_id))
     with _lock:
-        _pic_cache[key] = (time.time() + (_PIC_TTL if url else _PIC_TTL_MISS), url)
+        _pic_cache[key] = (time.time() + ttl, url)
         if len(_pic_cache) > 5000:
             for k in list(_pic_cache)[:1000]:
                 _pic_cache.pop(k, None)
@@ -432,9 +440,10 @@ def song_meta(
     extra = dict(extra or {})
     extra.update({k: v for k, v in recall(sid).items() if v})
     got = song_url(native_id, source=platform, br=br_for_level(level), base=base)
-    pic_id = str(extra.get("pic_id") or native_id)
+    # the picture id comes from a search listing; a song id is not one
+    pic_id = str(extra.get("pic_id") or "")
     # only a cover already resolved; otherwise the caller links the lazy one
-    pic = extra.get("picUrl") or cached_pic(base, platform, pic_id) or ""
+    pic = extra.get("picUrl") or (cached_pic(base, platform, pic_id) if pic_id else "") or ""
     br = int(got.get("br") or 0)
     size = int(got.get("size") or 0)
     if br >= 740 or size > 20 * 1024 * 1024:

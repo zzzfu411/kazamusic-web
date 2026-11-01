@@ -1059,7 +1059,11 @@ def favicon():
 def robots_txt():
     # crawlers asked for this daily (404s in the log); keep them off the API,
     # where every hit can spend upstream quota
-    resp = Response("User-agent: *\nDisallow: /api/\nAllow: /\n", mimetype="text/plain")
+    # covers stay open: yeuxark.com's song pages use them as share images
+    resp = Response(
+        "User-agent: *\nAllow: /api/cover-proxy\nAllow: /api/cache/\nAllow: /api/gd/pic\nDisallow: /api/\nAllow: /\n",
+        mimetype="text/plain",
+    )
     resp.headers["Cache-Control"] = "public, max-age=86400"
     return resp
 
@@ -1532,6 +1536,17 @@ def _gd_pic_lookup(source: str, pic_id: str) -> str:
     return gd_api.pic_url(pic_id, source=platform, base=src.get("endpoint"))
 
 
+_GD_PIC_SLOTS = threading.BoundedSemaphore(4)
+
+
+def _gd_pic_cached(source: str, pic_id: str) -> str | None:
+    import gd_api
+
+    platform = gd_api.normalize_platform(source)
+    src = upstream._src_for_kind("gd", platform)
+    return gd_api.cached_pic(src.get("endpoint"), platform, pic_id)
+
+
 def resolve_lazy_cover(url: str) -> str:
     """A /api/gd/pic link as the real cover URL (for caching a song); others unchanged."""
     if not url.startswith("/api/gd/pic?"):
@@ -1555,11 +1570,22 @@ def gd_pic():
     pic_id = (request.args.get("id") or "").strip()
     if not _GD_PIC_ID.fullmatch(pic_id):
         return "", 400
-    try:
-        url = _gd_pic_lookup(request.args.get("source") or "", pic_id)
-    except Exception as e:
-        log.warning("gd cover lookup failed: %s", e)
-        url = ""
+    source = request.args.get("source") or ""
+    url = _gd_pic_cached(source, pic_id)
+    if url is None:
+        # an uncached lookup goes to GD through the relay: only a few at once,
+        # so a stall there never takes the threads /api/stream needs
+        if not _GD_PIC_SLOTS.acquire(timeout=2):
+            resp = Response("", status=503)
+            resp.headers["Retry-After"] = "5"
+            return resp
+        try:
+            url = _gd_pic_lookup(source, pic_id)
+        except Exception as e:
+            log.warning("gd cover lookup failed: %s", e)
+            url = ""
+        finally:
+            _GD_PIC_SLOTS.release()
     if not url or not cover_host_ok(url):
         return "", 404
     return serve_cover(url, _want_size() or 300)

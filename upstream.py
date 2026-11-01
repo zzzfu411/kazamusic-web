@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
+import time
 from typing import Any
 from urllib.parse import parse_qs, quote, urlparse
 
@@ -146,7 +148,12 @@ def chksz_get(
     key = (apikey or "").strip() or _chksz_apikey()
     if key and not q.get("apikey"):
         q["apikey"] = key
-    r = SESSION.get(url, params=q, timeout=timeout)
+    try:
+        r = SESSION.get(url, params=q, timeout=timeout)
+    except requests.RequestException as e:
+        # its message names the request URL, apikey included: keep it out of
+        # the journal and the admin probe
+        raise RuntimeError(f"chksz {path} {type(e).__name__}") from None
     try:
         import chksz_quota
 
@@ -269,11 +276,13 @@ def _chksz_timeout(provider: str | None = None) -> float:
     p = provider or _provider()
     if p == "auto":
         return 2.5
+    # a fixed chksz gets longer, but not so long that the fallbacks behind it
+    # wait 10 s (one song took 11.8 s when chksz stalled)
     src = _source_by_id(p)
     if src and src.get("kind") == "chksz":
-        return 10.0
+        return 4.0
     if p == "chksz":
-        return 10.0
+        return 4.0
     return 2.5
 
 
@@ -436,8 +445,8 @@ def _meta_gd(sid: str, src: dict, level: str | None = None) -> dict:
         level=level,
         base=src.get("endpoint"),
     )
-    if not meta.get("picUrl"):
-        meta["picUrl"] = gd_lazy_pic(meta.get("platform") or platform, meta.get("pic_id") or native)
+    if not meta.get("picUrl") and meta.get("pic_id"):
+        meta["picUrl"] = gd_lazy_pic(meta.get("platform") or platform, meta["pic_id"])
     meta["_source"] = src.get("id") or "gd"
     return meta
 
@@ -549,6 +558,56 @@ def _netease_capable(src: dict) -> bool:
     if kind == "gd":
         return str(src.get("platform") or "netease").lower() in ("netease", "wyy")
     return kind in ("chksz", "meting")
+
+
+def _reads_netease_id(src: dict) -> bool:
+    """A plain numeric id is a NetEase id; on a kuwo / QQ source it is another song."""
+    if src.get("kind") == "hi":
+        return str(src.get("platform") or "").lower() in ("wyy", "netease")
+    return _netease_capable(src)
+
+
+# names / cover for a NetEase id whose link came from a source that had none
+# (GD only knows the songs it has listed): Meting's song lookup, cached
+_NAME_KEYS = ("name", "artist", "album", "picUrl")
+_names_cache: dict[str, tuple[float, dict]] = {}
+_names_lock = threading.Lock()
+
+
+def _names_from_meting(sid: str) -> dict:
+    now = time.time()
+    with _names_lock:
+        hit = _names_cache.get(sid)
+    if hit and hit[0] > now:
+        return dict(hit[1])
+    out: dict = {}
+    try:
+        data = meting_get("song", sid, timeout=4)
+        item = data[0] if isinstance(data, list) and data else {}
+        out = {"name": item.get("name") or "", "artist": item.get("artist") or "", "picUrl": item.get("pic") or ""}
+    except Exception as e:
+        log.warning("names for %s via meting failed: %s", sid, type(e).__name__)
+    with _names_lock:
+        _names_cache[sid] = (now + (86400 if out.get("name") else 300), out)
+        if len(_names_cache) > 2000:
+            for k in list(_names_cache)[:500]:
+                _names_cache.pop(k, None)
+    return dict(out)
+
+
+def _with_names(sid: str, raw: dict, *others: dict) -> dict:
+    """Missing names / cover from the other answers, then from Meting."""
+    raw = dict(raw)
+    for other in others:
+        for k in _NAME_KEYS:
+            if not raw.get(k) and other.get(k):
+                raw[k] = other[k]
+    if raw and not (raw.get("name") and raw.get("artist") and raw.get("picUrl")):
+        found = _names_from_meting(sid)
+        for k in _NAME_KEYS:
+            if not raw.get(k) and found.get(k):
+                raw[k] = found[k]
+    return raw
 
 
 def _fallback_sources(exclude_id: str | None) -> list[dict]:
@@ -976,7 +1035,7 @@ def get_song_meta(sid: str, level: str | None = None) -> dict:
         except Exception as e:
             log.warning("song meta via %s failed: %s", src.get("id"), e)
             return {}
-        if raw.get("url"):
+        if raw:
             raw = dict(raw)
             raw["id"] = int(sid)  # GD answers as "gd:netease:<id>"; keep the asked id
         return raw
@@ -988,14 +1047,19 @@ def get_song_meta(sid: str, level: str | None = None) -> dict:
         src = _source_by_id(provider)
         if not src:
             return _meta_meting(sid)
-        candidates = [src] + _fallback_sources(src.get("id"))
+        # a kuwo / QQ source would read the NetEase id as one of its own songs:
+        # then the sources that read NetEase ids go first
+        lead = [src] if _reads_netease_id(src) else []
+        candidates = lead + _fallback_sources(src.get("id"))
     first: dict = {}
     for i, src in enumerate(candidates):
         raw = attempt(src)
         if raw.get("url"):
             if i and provider != "auto":
                 log.info("song %s served by fallback %s", sid, src.get("id"))
-            return raw
+            # a link from GD (chosen or a fallback) often comes without names:
+            # keep the first source's, or look them up
+            return _with_names(sid, raw, first)
         if i == 0:
             first = raw  # names/cover from the chosen source, even without a link
     return first

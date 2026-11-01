@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, quote, urlparse
 import requests
 
 import config
+import safe_fetch
 
 log = logging.getLogger("kazam.upstream")
 
@@ -610,6 +611,14 @@ def _with_names(sid: str, raw: dict, *others: dict) -> dict:
     return raw
 
 
+def _auto_netease_sources() -> list[dict]:
+    """Auto mode: the sources that read NetEase ids, in the fallback order
+    (GD's full track before chksz quota, a Meting preview clip last)."""
+    out = [s for s in _active_sources() if _netease_capable(s)]
+    out.sort(key=lambda s: _NETEASE_FALLBACK_ORDER.get(str(s.get("kind")), 9))
+    return out
+
+
 def _fallback_sources(exclude_id: str | None) -> list[dict]:
     out = [
         s for s in _active_sources()
@@ -747,58 +756,30 @@ def _resolve_audio_url(play_url: str, timeout: float = 12) -> tuple[str, dict[st
     if not play_url:
         return "", {}
     try:
-        # First: no body, capture Location chain
-        r = SESSION.head(play_url, timeout=timeout, allow_redirects=True)
+        # no body: follow the Location chain, each hop checked (public http(s) only)
+        r = safe_fetch.request_checked(SESSION, "HEAD", play_url, timeout=timeout)
         # Some CDNs/proxies reject HEAD → fall back to Range GET
-        if r.status_code >= 400 or (
+        if r is None or r.status_code >= 400 or (
             r.status_code == 200
             and "text/html" in (r.headers.get("content-type") or "").lower()
             and not (r.headers.get("content-length") or "").isdigit()
         ):
-            r.close()
-            r = SESSION.get(
-                play_url,
-                headers={"Range": "bytes=0-0"},
-                timeout=timeout,
-                allow_redirects=True,
-                stream=True,
+            if r is not None:
+                r.close()
+            r = safe_fetch.request_checked(
+                SESSION, "GET", play_url, headers={"Range": "bytes=0-0"}, timeout=timeout, stream=True
             )
+        if r is None:
+            log.warning("audio link refused: a hop is not a public http(s) address")
+            return play_url, {}
         final = r.url or play_url
         headers = {k.lower(): v for k, v in r.headers.items()}
         try:
             r.close()
         except Exception:
             pass
-        # If still on meting proxy with empty/html, try explicit no-follow Location
-        if "meting" in final or "qijieya" in final:
-            try:
-                r2 = SESSION.get(
-                    play_url, timeout=timeout, allow_redirects=False, stream=True
-                )
-                loc = r2.headers.get("Location") or r2.headers.get("location")
-                try:
-                    r2.close()
-                except Exception:
-                    pass
-                if loc and loc.startswith("http"):
-                    r3 = SESSION.head(loc, timeout=timeout, allow_redirects=True)
-                    if r3.status_code >= 400:
-                        r3.close()
-                        r3 = SESSION.get(
-                            loc,
-                            headers={"Range": "bytes=0-0"},
-                            timeout=timeout,
-                            allow_redirects=True,
-                            stream=True,
-                        )
-                    final = r3.url or loc
-                    headers = {k.lower(): v for k, v in r3.headers.items()}
-                    try:
-                        r3.close()
-                    except Exception:
-                        pass
-            except Exception as e:
-                log.debug("resolve redirect failed: %s", e)
+        # (the redirects are followed hop by hop above, so a Meting link always
+        # ends on its CDN; the old second pass for a stuck Meting URL is gone)
         return final, headers
     except Exception as e:
         log.debug("resolve audio url failed: %s", e)
@@ -1042,7 +1023,7 @@ def get_song_meta(sid: str, level: str | None = None) -> dict:
 
     if provider == "auto":
         # only sources that understand NetEase ids (ORS would read it as a QQ id)
-        candidates = [s for s in _active_sources() if _netease_capable(s)]
+        candidates = _auto_netease_sources()
     else:
         src = _source_by_id(provider)
         if not src:
@@ -1175,7 +1156,7 @@ def get_lyric(sid: str) -> dict:
         return empty
 
     if provider == "auto":
-        candidates = [s for s in _active_sources() if _netease_capable(s)]
+        candidates = _auto_netease_sources()
     else:
         src = _source_by_id(provider)
         if not src:
@@ -1514,7 +1495,9 @@ def probe_source(
             if code == 200 and ("audio" in ct or "mpeg" in ct or "octet" in ct):
                 cl = r.headers.get("content-length") or "?"
                 return f"200 audio cl={cl}"
-            r2 = SESSION.get(url, timeout=12, allow_redirects=True, stream=True)
+            r2 = safe_fetch.request_checked(SESSION, "GET", url, timeout=12, stream=True)
+            if r2 is None:
+                raise RuntimeError("audio link points at a non-public address")
             try:
                 ct2 = (r2.headers.get("content-type") or "").lower()
                 cl2 = r2.headers.get("content-length") or "0"

@@ -6,13 +6,11 @@ import base64
 import glob
 import hashlib
 import hmac
-import ipaddress
 import json
 import logging
 import mimetypes
 import random
 import re
-import socket
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -25,6 +23,7 @@ import requests
 from flask import Flask, Response, jsonify, render_template, request, send_file, send_from_directory
 
 import config
+import safe_fetch
 import upstream
 
 logging.basicConfig(
@@ -541,7 +540,7 @@ def open_upstream_audio(
             return None
         resp = None
         try:
-            resp = SESSION.get(url, headers=headers, stream=True, timeout=(6, 30), allow_redirects=True)
+            resp = fetch_audio(url, headers=headers, timeout=(6, 30))
         except requests.RequestException as e:
             log.warning("upstream audio %s failed: %s", sid, e)
         if resp is not None and resp.status_code < 400 and not _not_audio(resp):
@@ -670,18 +669,15 @@ def cover_host_ok(url: str) -> bool:
 
 def _public_host(host: str) -> bool:
     """Every address the name resolves to is public (no loopback, LAN, link-local, …)."""
-    try:
-        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
-    except OSError:
-        return False
-    for info in infos:
-        try:
-            ip = ipaddress.ip_address(str(info[4][0]).split("%", 1)[0])
-        except ValueError:
-            return False
-        if not ip.is_global:
-            return False
-    return bool(infos)
+    return safe_fetch.public_host(host)
+
+
+def fetch_audio(url: str, headers: dict | None = None, timeout: Any = (6, 30)) -> requests.Response | None:
+    """GET an upstream audio link, every redirect checked (public http(s) only); None if refused."""
+    r = safe_fetch.request_checked(SESSION, "GET", url, headers=headers, stream=True, timeout=timeout)
+    if r is None:
+        log.warning("audio link refused: %s", (urlparse(url).hostname or "?"))
+    return r
 
 
 def fetch_cover(url: str, timeout: Any = (5, 12), hops: int = 3) -> requests.Response | None:
@@ -881,7 +877,10 @@ def cache_song(sid: str, level: str | None = None) -> dict:
     tmp_path = config.CACHE_DIR / f"{sid}.audio.part"
 
     log.info("caching song %s level=%s -> %s", sid, level, audio_path.name)
-    with SESSION.get(audio_url, stream=True, timeout=120) as resp:
+    resp = fetch_audio(audio_url, timeout=120)
+    if resp is None:
+        raise RuntimeError("audio link points at a non-public address")
+    with resp:
         resp.raise_for_status()
         with open(tmp_path, "wb") as f:
             for chunk in resp.iter_content(256 * 1024):

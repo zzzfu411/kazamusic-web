@@ -59,7 +59,7 @@ _S = (
 )
 
 _lock = threading.Lock()
-_version_cache: dict[str, tuple[float, str]] = {}
+_version_cache: dict[str, tuple[float, str, float]] = {}
 _track_cache: dict[str, dict[str, Any]] = {}
 # base -> (fetched_at, server_ms - local_ms). The signature only uses the first
 # 9 digits of the millisecond clock (10 s steps), so the offset is measured once
@@ -70,6 +70,8 @@ _CLOCK_TTL = 15 * 60
 _pic_cache: dict[tuple[str, str, str], tuple[float, str]] = {}
 _PIC_TTL = 24 * 3600
 _PIC_TTL_MISS = 10 * 60
+_VERSION_TTL = 6 * 3600
+_VERSION_TTL_FAIL = 5 * 60
 _PIC_TTL_FAIL = 2 * 60   # a timeout or error: asked again only after a while
 
 
@@ -171,23 +173,27 @@ def gd_md5_hex(data: bytes) -> str:
     return struct.pack("<4I", a0, b0, c0, d0).hex()
 
 
-def _version(base: str) -> str:
+def _version(base: str, refresh: bool = False) -> str:
+    """GD's player version (part of the signature): read from player.js for 6 h.
+    A failed read falls back to DEFAULT_VERSION for 5 minutes only, and a
+    rejected signature reads it again (at most once a minute), so one hiccup
+    no longer leaves every call signed with a stale version for hours."""
     now = time.time()
     with _lock:
-        hit = _version_cache.get(base)
-        if hit and now - hit[0] < 6 * 3600:
-            return hit[1]
-    ver = DEFAULT_VERSION
+        hit = _version_cache.get(base)  # (expires, value, read at)
+    if hit and now < hit[0] and not (refresh and now - hit[2] > 60):
+        return hit[1]
+    ver, ttl = DEFAULT_VERSION, _VERSION_TTL_FAIL
     try:
         r = SESSION.get(f"{base}/js/player.js", timeout=8, headers={"Referer": base + "/"})
         m = re.search(r'version:"(\d{4}\.\d{2}\.\d{2})"', r.text or "")
         if m:
-            ver = m.group(1)
+            ver, ttl = m.group(1), _VERSION_TTL
     except Exception as e:
         log.debug("gd version fetch failed: %s", e)
     flat = "".join(p if len(p) >= 2 else "0" + p for p in ver.split("."))
     with _lock:
-        _version_cache[base] = (now, flat)
+        _version_cache[base] = (now + ttl, flat, now)
     return flat
 
 
@@ -220,7 +226,7 @@ def _clock(base: str, refresh: bool = False) -> str:
 
 
 def sign(value: str, base: str, refresh_clock: bool = False) -> str:
-    payload = f"{_clock(base, refresh_clock)}|{_host(base)}|{_version(base)}|{value}"
+    payload = f"{_clock(base, refresh_clock)}|{_host(base)}|{_version(base, refresh_clock)}|{value}"
     return gd_md5_hex(payload.encode()).upper()[-8:]
 
 

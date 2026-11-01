@@ -417,6 +417,7 @@ body.admin button.admin-only:not([hidden]), body.admin .tag.admin-only:not([hidd
 
 /* ── Main App Grid & Theater Mode ─────────────────────────────────────── */
 .app {
+  height: calc(100vh - var(--topbar)); /* browsers without dvh (Safari < 15.4) */
   height: calc(100dvh - var(--topbar));
   display: grid; grid-template-columns: minmax(360px, 445px) minmax(0, 1fr); gap: 24px;
   padding: 4px 28px 24px;
@@ -430,7 +431,7 @@ body.theater-on .app {
 /* 沉浸模式 (the browser goes fullscreen too): no top bar, no tabs — the deck and the words */
 .theater-exit { display: none; }
 body.theater-on .topbar { display: none; }
-body.theater-on .app { height: 100dvh; padding-top: 24px; }
+body.theater-on .app { height: 100vh; height: 100dvh; padding-top: 24px; }
 body.theater-on .panel { position: relative; }
 body.theater-on .panel-head, body.theater-on .panel-sub-bar { display: none; }
 body.theater-on .theater-exit { display: inline-grid; position: absolute; top: 14px; right: 14px; z-index: 5; }
@@ -1328,7 +1329,9 @@ select.field option { background: var(--bg-elev); color: var(--text); }
   .pill { width: 38px; height: 38px; background: none; border: 0; }
   .quota { display: none !important; }
 
-  .app { display: block; height: calc(100dvh - var(--topbar)); padding: 0; }
+  .app { display: block; height: calc(100vh - var(--topbar)); height: calc(100dvh - var(--topbar)); padding: 0; }
+  /* iOS zooms into any focused field under 16px and stays zoomed */
+  .search input, .field, .filter-box input, .level select { font-size: 16px; }
   .panel {
     height: 100%; border-radius: 24px 24px 0 0; border-bottom: 0;
     background: var(--glass);
@@ -1387,6 +1390,10 @@ select.field option { background: var(--bg-elev); color: var(--text); }
     filter: blur(60px) saturate(1.5); opacity: 0.35;
   }
   body.sheet-open .stage { transform: none; visibility: visible; transition: transform 0.42s var(--ease); }
+  /* the full-screen player is opaque: no glass blur to compute behind it, and
+     the drifting light underneath is invisible, so it stops */
+  .stage { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  body.sheet-open .backdrop-orb { animation-play-state: paused; }
   .sheet-bar { display: flex; align-items: center; justify-content: space-between; min-height: 44px; }
   .sheet-label { font-size: 12px; font-weight: 700; color: var(--text-3); letter-spacing: 0.16em; }
   .stage-visual { flex: 1; min-height: 0; }

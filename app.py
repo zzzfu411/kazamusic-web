@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import glob
 import hashlib
 import hmac
 import ipaddress
@@ -198,11 +199,8 @@ def verify_admin_token(token: str) -> bool:
 
 def require_admin() -> Response | None:
     """Return error Response if not admin; None if OK."""
-    token = (
-        request.headers.get("X-Admin-Token")
-        or request.args.get("admin_token")
-        or ""
-    ).strip()
+    # header only: a token in the query string ends up in access logs
+    token = (request.headers.get("X-Admin-Token") or "").strip()
     if verify_admin_token(token):
         return None
     return jsonify({"ok": False, "error": "admin required"}), 401
@@ -435,7 +433,9 @@ def parse_audio_level(raw: str | None = None) -> str:
 # Keep a working CDN URL until it actually dies (403) — do NOT drop it at 12min.
 # Hard cap only to bound memory; fail-and-refresh handles real expiry.
 _META_KEEP_OK = 2 * 60 * 60
-_META_TTL_MISS = 8
+# A miss now walks the fallback sources too (a few seconds); remember it for a
+# minute so the player's prefetch + play of the same song do not repeat it.
+_META_TTL_MISS = 60
 _meta_lock = threading.Lock()
 _meta_cache: dict[tuple[str, str], tuple[float, dict]] = {}
 # One upstream lookup per song at a time: the player asks for the stream and
@@ -506,10 +506,18 @@ def get_audio_url(sid: str, level: str | None = None, *, force: bool = False) ->
     url = (raw.get("url") or "") if raw else ""
     if url:
         return url
+    if not str(sid).isdigit():
+        return ""  # a Meting link only makes sense for a NetEase id
     try:
         return upstream.meting_audio_url(str(sid))
     except Exception:
         return ""
+
+
+def _not_audio(resp: requests.Response) -> bool:
+    """Error pages served with 200 (Meting does this for VIP songs)."""
+    ct = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+    return ct.startswith("text/") or ct.endswith("json")
 
 
 def open_upstream_audio(
@@ -524,7 +532,11 @@ def open_upstream_audio(
     if range_header:
         headers["Range"] = range_header
     for attempt in (0, 1):
-        url = get_audio_url(sid, level=level, force=attempt == 1)
+        raw = get_song_meta(sid, level=level, force=attempt == 1)
+        url = (raw.get("url") or "") if raw else ""
+        resolved = bool(url)
+        if not url and attempt == 0:
+            url = get_audio_url(sid, level=level)  # last resort: a Meting link
         if not url:
             return None
         resp = None
@@ -532,10 +544,16 @@ def open_upstream_audio(
             resp = SESSION.get(url, headers=headers, stream=True, timeout=(6, 30), allow_redirects=True)
         except requests.RequestException as e:
             log.warning("upstream audio %s failed: %s", sid, e)
-        if resp is not None and resp.status_code < 400:
+        if resp is not None and resp.status_code < 400 and not _not_audio(resp):
             return resp
         if resp is not None:
+            if resp.status_code < 400:
+                log.warning("upstream audio %s is %s, not audio", sid, resp.headers.get("Content-Type"))
             resp.close()
+        if not resolved:
+            # no link was cached, so there is nothing stale to look up again
+            # (a fresh miss just walked every fallback source)
+            return None
         invalidate_song_meta(sid, level)
     return None
 
@@ -601,6 +619,12 @@ _COVER_SUFFIXES = tuple(config.COVER_HOST_SUFFIXES) + (
     "ors.de5.net",
     "gdstudio.xyz",
     "gdstudio.org",
+    # cover CDNs of the other platforms GD can search
+    "qobuz.com",
+    "mzstatic.com",
+    "hdslb.com",
+    "ytimg.com",
+    "joox.com",
 )
 _source_hosts = TTLCache(maxsize=2)
 
@@ -701,12 +725,29 @@ def make_lyric_text(raw: dict, name: str, artist: str) -> str:
 
 
 # ── Parse ID + Local cache ────────────────────────────────────────
+# Ids minted by the other sources: ORS (ors:qq:…), GD (gd:netease:…) and
+# flac.music.hi.cn (hi:kuwo:…). Same shapes cache_song accepts.
+_COMPOSITE_ID = re.compile(
+    r"(?:ors:[a-z]{2}:[^\s/]+|gd:[a-z0-9_]+:[A-Za-z0-9._:-]+|hi:(?:kuwo|wyy):[A-Za-z0-9._:-]+)",
+    re.I,
+)
+
+
+def valid_song_id(sid: str) -> bool:
+    sid = str(sid or "")
+    return bool(re.fullmatch(r"\d+", sid) or _COMPOSITE_ID.fullmatch(sid))
+
+
 def parse_song_id(raw: str) -> str | None:
     """Extract netease song id from bare id or share/page URL."""
     if not raw:
         return None
     s = raw.strip()
     if re.fullmatch(r"\d{5,}", s):
+        return s
+    # a composite id is already an id: pulling its digits out (below) would
+    # turn hi:kuwo:228908 into NetEase song 228908, a different song
+    if _COMPOSITE_ID.fullmatch(s):
         return s
     patterns = [
         r"[?&#]id=(\d{5,})",
@@ -728,9 +769,10 @@ def cache_meta_path(sid: str) -> Path:
 
 
 def find_cached_audio(sid: str) -> Path | None:
+    # escaped: the id comes from the URL, and "*" would match every song
     files = [
         p
-        for p in sorted(config.CACHE_DIR.glob(f"{sid}.audio.*"))
+        for p in sorted(config.CACHE_DIR.glob(f"{glob.escape(str(sid))}.audio.*"))
         if p.is_file() and p.stat().st_size > 1024
     ]
     return files[0] if files else None
@@ -795,12 +837,7 @@ def cache_song(sid: str, level: str | None = None) -> dict:
     sid = str(sid).strip()
     level = parse_audio_level(level)
     # numeric netease ids, plus composite ids minted by ORS / GD / flac.music.hi.cn
-    if not (
-        re.fullmatch(r"\d+", sid)
-        or re.fullmatch(r"ors:[a-z]{2}:.+", sid, re.I)
-        or re.fullmatch(r"gd:[a-z0-9_]+:[A-Za-z0-9._:-]+", sid, re.I)
-        or re.fullmatch(r"hi:(kuwo|wyy):[A-Za-z0-9._:-]+", sid, re.I)
-    ):
+    if not valid_song_id(sid):
         raise ValueError("invalid song id")
 
     existing = find_cached_audio(sid)
@@ -834,7 +871,7 @@ def cache_song(sid: str, level: str | None = None) -> dict:
             path_ext = "mp3"
     ext = path_ext
     # drop stale audio files (e.g. re-cache mp3 → flac)
-    for old in config.CACHE_DIR.glob(f"{sid}.audio.*"):
+    for old in config.CACHE_DIR.glob(f"{glob.escape(sid)}.audio.*"):
         try:
             if old.is_file():
                 old.unlink()
@@ -852,7 +889,7 @@ def cache_song(sid: str, level: str | None = None) -> dict:
                     f.write(chunk)
     tmp_path.replace(audio_path)
 
-    cover_url = try_https(raw.get("picUrl") or "")
+    cover_url = resolve_lazy_cover(try_https(raw.get("picUrl") or ""))
     cover_path = config.CACHE_DIR / f"{sid}.cover.jpg"
     if cover_url and cover_host_ok(cover_url):
         try:
@@ -903,8 +940,11 @@ def list_library() -> list[dict]:
 
 
 def delete_cache(sid: str) -> bool:
+    # validated + escaped: "DELETE /api/cache/*" used to match the whole cache
+    if not valid_song_id(sid):
+        return False
     removed = False
-    for p in config.CACHE_DIR.glob(f"{sid}.*"):
+    for p in config.CACHE_DIR.glob(f"{glob.escape(sid)}.*"):
         try:
             p.unlink()
             removed = True
@@ -1015,6 +1055,15 @@ def favicon():
     return resp
 
 
+@app.route("/robots.txt")
+def robots_txt():
+    # crawlers asked for this daily (404s in the log); keep them off the API,
+    # where every hit can spend upstream quota
+    resp = Response("User-agent: *\nDisallow: /api/\nAllow: /\n", mimetype="text/plain")
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
+
+
 @app.route("/apple-touch-icon.png")
 def apple_touch_icon():
     return send_from_directory(app.static_folder, "logo.png", max_age=604800)
@@ -1081,7 +1130,7 @@ _SEARCH_TTL = 10 * 60
 _SEARCH_TTL_EMPTY = 30
 
 
-def cached_search(keyword: str, limit: int = 30) -> list[dict]:
+def cached_search(keyword: str, limit: int = 30, ttl: float | None = None) -> list[dict]:
     key = (upstream._provider(), keyword.strip().lower(), limit)
     hit = _search_cache.get(key)
     if hit is not None:
@@ -1096,7 +1145,7 @@ def cached_search(keyword: str, limit: int = 30) -> list[dict]:
         if s.get("picUrl") and not n.get("cover"):
             n["cover"] = try_https(s["picUrl"])
         songs.append(n)
-    _search_cache.set(key, songs, _SEARCH_TTL if songs else _SEARCH_TTL_EMPTY)
+    _search_cache.set(key, songs, (ttl or _SEARCH_TTL) if songs else _SEARCH_TTL_EMPTY)
     return songs
 
 
@@ -1175,9 +1224,14 @@ def _today_cn() -> str:
     return datetime.now(tz).strftime("%Y-%m-%d")
 
 
+# Radio keywords are broad genres whose results barely move within a day; each
+# uncached one costs a chksz call, so they are kept for hours, not minutes.
+_RADIO_SEARCH_TTL = 6 * 3600
+
+
 def _search_songs_for_radio(keyword: str, limit: int = 20) -> list[dict]:
     try:
-        return [dict(s) for s in cached_search(keyword, limit=limit)]
+        return [dict(s) for s in cached_search(keyword, limit=limit, ttl=_RADIO_SEARCH_TTL)]
     except Exception as e:
         log.warning("radio search %s failed: %s", keyword, e)
         return []
@@ -1219,7 +1273,9 @@ def build_today_radio(
 
     # keywords are searched six at a time (they used to run one after another);
     # a second batch only runs when the first did not fill the pool
+    used: list[str] = []
     for start in range(0, len(chosen), 6):
+        used.extend(chosen[start:start + 6])
         for batch in _radio_pool.map(lambda kw: _search_songs_for_radio(kw, limit=20), chosen[start:start + 6]):
             rng.shuffle(batch)
             for s in batch:
@@ -1228,7 +1284,9 @@ def build_today_radio(
                     continue
                 seen.add(sid)
                 pool.append(s)
-        if len(pool) >= limit * 4:
+        # six keywords x 20 songs is plenty to shuffle 30 from; the second
+        # batch (six more upstream calls) only when the first came back thin
+        if len(pool) >= limit * 2:
             break
 
     if len(pool) < limit:
@@ -1256,7 +1314,7 @@ def build_today_radio(
     return {
         "date": today,
         "songs": songs,
-        "keywords": chosen,
+        "keywords": used,
         "excluded": len(exclude_ids),
         "overlap": overlap,
     }
@@ -1353,7 +1411,9 @@ def lyric(sid: str):
     d = _lyric_cache.get(str(sid))
     if d is None:
         d = upstream.get_lyric(sid) or {}
-        _lyric_cache.set(str(sid), d, 6 * 3600 if (d.get("lrc") or d.get("tlyric")) else 60)
+        # no lyric (instrumental, or every source failed): asked again after
+        # 10 min, not every minute, as a miss now tries the fallback sources too
+        _lyric_cache.set(str(sid), d, 6 * 3600 if (d.get("lrc") or d.get("tlyric")) else 600)
     resp = jsonify(
         {
             "ok": True,
@@ -1444,18 +1504,70 @@ def _prune_cover_dir() -> None:
         p.unlink(missing_ok=True)
 
 
+def _want_size() -> int:
+    try:
+        return int(request.args.get("size") or 0)
+    except ValueError:
+        return 0
+
+
 @app.route("/api/cover-proxy")
 def cover_proxy():
-    global _cover_writes
     url = request.args.get("url", "").strip()
     if not url or not url.startswith(("http://", "https://")):
         return "", 400
     if not cover_host_ok(url):
         return jsonify({"ok": False, "error": "host not allowed"}), 403
+    return serve_cover(url, _want_size())
+
+
+_GD_PIC_ID = re.compile(r"[A-Za-z0-9._=-]{1,128}")
+
+
+def _gd_pic_lookup(source: str, pic_id: str) -> str:
+    import gd_api
+
+    platform = gd_api.normalize_platform(source)
+    src = upstream._src_for_kind("gd", platform)
+    return gd_api.pic_url(pic_id, source=platform, base=src.get("endpoint"))
+
+
+def resolve_lazy_cover(url: str) -> str:
+    """A /api/gd/pic link as the real cover URL (for caching a song); others unchanged."""
+    if not url.startswith("/api/gd/pic?"):
+        return url
+    from urllib.parse import parse_qs
+
+    q = parse_qs(urlparse(url).query)
+    pic_id = (q.get("id") or [""])[0]
+    if not _GD_PIC_ID.fullmatch(pic_id):
+        return ""
     try:
-        want = int(request.args.get("size") or 0)
-    except ValueError:
-        want = 0
+        return _gd_pic_lookup((q.get("source") or [""])[0], pic_id)
+    except Exception as e:
+        log.warning("gd cover lookup failed: %s", e)
+        return ""
+
+
+@app.route("/api/gd/pic")
+def gd_pic():
+    """Cover of a GD search result, looked up on first view, then served like the cover proxy."""
+    pic_id = (request.args.get("id") or "").strip()
+    if not _GD_PIC_ID.fullmatch(pic_id):
+        return "", 400
+    try:
+        url = _gd_pic_lookup(request.args.get("source") or "", pic_id)
+    except Exception as e:
+        log.warning("gd cover lookup failed: %s", e)
+        url = ""
+    if not url or not cover_host_ok(url):
+        return "", 404
+    return serve_cover(url, _want_size() or 300)
+
+
+def serve_cover(url: str, want: int):
+    """A listed-host cover, from the disk cache or fetched (NetEase at the shown size)."""
+    global _cover_writes
     size = next((s for s in COVER_SIZES if s >= want), COVER_SIZES[-1]) if want > 0 else 0
     fetch_url = _sized_cover_url(try_https(url), size)
     path = _COVER_DIR / (hashlib.sha1(fetch_url.encode("utf-8")).hexdigest() + ".img")
@@ -1632,7 +1744,8 @@ def cache_status(sid: str):
 # request beside the original (delete_cache's "{sid}.*" removes them too) and
 # remade when the original is newer.
 COVER_THUMB_SIZES = (160, 320, 480)
-_COVER_SID = re.compile(r"^[0-9A-Za-z_-]+$")
+# composite ids (gd:netease:123, hi:kuwo:456, ors:qq:…) contain ":" and "."
+_COVER_SID = re.compile(r"^[0-9A-Za-z_.:-]+$")
 
 
 def cover_thumb(sid: str, size: int) -> Path | None:
@@ -1661,7 +1774,7 @@ def cover_thumb(sid: str, size: int) -> Path | None:
 def cache_cover(sid: str):
     size = request.args.get("size")
     if size is not None:
-        if size not in {str(s) for s in COVER_THUMB_SIZES} or not _COVER_SID.match(sid):
+        if size not in {str(s) for s in COVER_THUMB_SIZES} or not _COVER_SID.match(sid) or ".." in sid:
             return jsonify({"ok": False, "error": "size must be 160, 320 or 480"}), 400
         try:
             thumb = cover_thumb(sid, int(size))
@@ -1674,11 +1787,7 @@ def cache_cover(sid: str):
     path = config.CACHE_DIR / f"{sid}.cover.jpg"
     if not path.exists():
         return "", 404
-    return Response(
-        path.read_bytes(),
-        mimetype="image/jpeg",
-        headers={"Cache-Control": "public, max-age=86400"},
-    )
+    return send_file(path, mimetype="image/jpeg", max_age=86400, conditional=True)
 
 
 @app.route("/api/library")

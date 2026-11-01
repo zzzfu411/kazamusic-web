@@ -16,7 +16,6 @@ import re
 import struct
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from urllib.parse import quote, urlparse
 
@@ -62,6 +61,15 @@ _S = (
 _lock = threading.Lock()
 _version_cache: dict[str, tuple[float, str]] = {}
 _track_cache: dict[str, dict[str, Any]] = {}
+# base -> (fetched_at, server_ms - local_ms). The signature only uses the first
+# 9 digits of the millisecond clock (10 s steps), so the offset is measured once
+# and reused instead of asking /time before every call (it doubled the requests).
+_clock_offset: dict[str, tuple[float, int]] = {}
+_CLOCK_TTL = 15 * 60
+# (base, platform, pic_id) -> (expires_at, url). Cover links are stable.
+_pic_cache: dict[tuple[str, str, str], tuple[float, str]] = {}
+_PIC_TTL = 24 * 3600
+_PIC_TTL_MISS = 10 * 60
 
 
 def _session() -> requests.Session:
@@ -182,31 +190,45 @@ def _version(base: str) -> str:
     return flat
 
 
-def _clock(base: str) -> str:
+def _offset(base: str, refresh: bool = False) -> int:
+    now = time.time()
+    with _lock:
+        hit = _clock_offset.get(base)
+    if hit and not refresh and now - hit[0] < _CLOCK_TTL:
+        return hit[1]
+    offset = hit[1] if hit else 0
     try:
-        r = SESSION.get(
-            f"{base}/time",
-            timeout=6,
-            headers={"Referer": base + "/"},
-        )
+        t0 = time.time()
+        r = SESSION.get(f"{base}/time", timeout=6, headers={"Referer": base + "/"})
         digits = re.sub(r"\D", "", (r.text or "").strip())
-        if len(digits) >= 9:
-            return digits[:9]
+        if len(digits) >= 13:
+            local_ms = int((t0 + time.time()) / 2 * 1000)
+            offset = int(digits[:13]) - local_ms
+        elif len(digits) >= 9:
+            # only the signing prefix came back; align on it
+            offset = int(digits[:9]) * 10000 - int(time.time() * 1000) + 5000
     except Exception as e:
         log.debug("gd /time failed: %s", e)
-    return str(int(time.time() * 1000))[:9]
+    with _lock:
+        _clock_offset[base] = (now, offset)
+    return offset
 
 
-def sign(value: str, base: str) -> str:
-    payload = f"{_clock(base)}|{_host(base)}|{_version(base)}|{value}"
+def _clock(base: str, refresh: bool = False) -> str:
+    return str(int(time.time() * 1000) + _offset(base, refresh))[:9]
+
+
+def sign(value: str, base: str, refresh_clock: bool = False) -> str:
+    payload = f"{_clock(base, refresh_clock)}|{_host(base)}|{_version(base)}|{value}"
     return gd_md5_hex(payload.encode()).upper()[-8:]
 
 
 def _get(base: str, fields: dict[str, Any], sign_key: str) -> Any:
     encoded = {k: js_quote(str(v)) for k, v in fields.items()}
     last_err: Exception | None = None
-    for _ in range(2):
-        sig = sign(encoded[sign_key], base)
+    for attempt in range(2):
+        # a rejected signature usually means the clock moved: measure it again
+        sig = sign(encoded[sign_key], base, refresh_clock=attempt > 0)
         qs = "&".join(f"{k}={v}" for k, v in encoded.items()) + f"&s={sig}"
         url = f"{base}/api.php?{qs}"
         try:
@@ -241,19 +263,46 @@ def _artists(raw: Any) -> str:
     return str(raw or "")
 
 
+def cached_pic(base: str | None, platform: str, pic_id: str) -> str | None:
+    """A cover link resolved earlier ("" = known to have none), or None."""
+    key = (_base(base), normalize_platform(platform), str(pic_id))
+    with _lock:
+        hit = _pic_cache.get(key)
+    if hit and hit[0] > time.time():
+        return hit[1]
+    return None
+
+
 def _pic(base: str, platform: str, pic_id: str) -> str:
     if not pic_id:
         return ""
+    hit = cached_pic(base, platform, pic_id)
+    if hit is not None:
+        return hit
+    url = ""
     try:
         body = _get(
-            base,
-            {"types": "pic", "id": pic_id, "source": platform, "size": 300},
+            _base(base),
+            {"types": "pic", "id": pic_id, "source": normalize_platform(platform), "size": 500},
             "id",
         )
-        url = (body or {}).get("url") if isinstance(body, dict) else ""
-        return url if isinstance(url, str) and url.startswith("http") else ""
-    except Exception:
-        return ""
+        got = (body or {}).get("url") if isinstance(body, dict) else ""
+        url = got if isinstance(got, str) and got.startswith("http") else ""
+    except Exception as e:
+        log.debug("gd pic failed: %s", e)
+        return ""  # transient: not remembered
+    key = (_base(base), normalize_platform(platform), str(pic_id))
+    with _lock:
+        _pic_cache[key] = (time.time() + (_PIC_TTL if url else _PIC_TTL_MISS), url)
+        if len(_pic_cache) > 5000:
+            for k in list(_pic_cache)[:1000]:
+                _pic_cache.pop(k, None)
+    return url
+
+
+def pic_url(pic_id: str, *, source: str, base: str | None = None) -> str:
+    """Resolve a cover link (cached). Search results carry only the pic id."""
+    return _pic(_base(base), source, pic_id)
 
 
 def search(
@@ -312,19 +361,12 @@ def search(
                 "platform": plat,
                 "native_id": native,
                 "duration": int(item.get("duration") or 0),
-                "picUrl": "",
+                # Covers are not looked up here: one signed call per row made a
+                # 30-row search 60+ requests. The caller links a lazy cover
+                # (see app.py /api/gd/pic) unless the link is already known.
+                "picUrl": cached_pic(root, plat, pic_id) or "",
             }
         )
-    if rows:
-        with ThreadPoolExecutor(max_workers=6) as pool:
-            pics = list(
-                pool.map(
-                    lambda row: _pic(root, row["platform"], row["pic_id"]),
-                    rows,
-                )
-            )
-        for row, pic in zip(rows, pics):
-            row["picUrl"] = pic or ""
     return rows
 
 
@@ -390,7 +432,9 @@ def song_meta(
     extra = dict(extra or {})
     extra.update({k: v for k, v in recall(sid).items() if v})
     got = song_url(native_id, source=platform, br=br_for_level(level), base=base)
-    pic = extra.get("picUrl") or _pic(base or DEFAULT_BASE, platform, str(extra.get("pic_id") or native_id))
+    pic_id = str(extra.get("pic_id") or native_id)
+    # only a cover already resolved; otherwise the caller links the lazy one
+    pic = extra.get("picUrl") or cached_pic(base, platform, pic_id) or ""
     br = int(got.get("br") or 0)
     size = int(got.get("size") or 0)
     if br >= 740 or size > 20 * 1024 * 1024:
@@ -415,6 +459,7 @@ def song_meta(
         "type": ext,
         "platform": platform,
         "native_id": native_id,
+        "pic_id": pic_id,
         "lyric_id": extra.get("lyric_id") or native_id,
         "_source": "gd",
     }
@@ -424,7 +469,7 @@ def probe(base: str | None = None, keyword: str = "晴天", platform: str = "net
     t0 = time.time()
     checks: list[dict[str, Any]] = []
     try:
-        songs = search(keyword, source=platform, limit=1, base=base)
+        songs = search(keyword, source=platform, limit=5, base=base)
         checks.append(
             {
                 "name": "search",
@@ -450,12 +495,11 @@ def probe(base: str | None = None, keyword: str = "晴天", platform: str = "net
     if songs:
         t1 = time.time()
         try:
-            meta = song_meta(
-                songs[0]["native_id"],
-                source=songs[0]["platform"],
-                base=base,
-                extra=songs[0],
-            )
+            # the first hit can be a VIP-only song: a link for any of three is a pass
+            for song in songs[:3]:
+                meta = song_meta(song["native_id"], source=song["platform"], base=base, extra=song)
+                if meta.get("url"):
+                    break
             ok = bool(meta.get("url"))
             checks.append(
                 {

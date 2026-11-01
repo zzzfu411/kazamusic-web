@@ -162,19 +162,24 @@
   // or a NetEase picture that fails, goes through the same-origin proxy.
   function normCover(raw) {
     raw = String(raw || "").trim();
+    // protocol-relative links are third-party hosts, not this site
+    if (raw.indexOf("//") === 0) raw = "https:" + raw;
     [location.origin, publicBase].forEach(function (o) {
       if (o && raw.indexOf(o + "/api/") === 0) raw = raw.slice(o.length);
     });
     return raw;
   }
+  function isLocalPath(raw) { return raw.indexOf("/api/") === 0 || raw.indexOf("/static/") === 0; }
   function coverSrc(raw, size) {
     raw = normCover(raw);
     if (!raw) return "";
     if (raw.indexOf("/api/cache/") === 0) {
       return raw.split("?")[0] + "?size=" + (size <= 160 ? 160 : size <= 320 ? 320 : 480);
     }
-    if (raw.indexOf("/api/cover-proxy") === 0) return /[?&]size=/.test(raw) ? raw : raw + "&size=" + size;
-    if (raw.charAt(0) === "/") return raw;
+    if (raw.indexOf("/api/cover-proxy") === 0 || raw.indexOf("/api/gd/pic") === 0) {
+      return /[?&]size=/.test(raw) ? raw : raw + "&size=" + size;
+    }
+    if (isLocalPath(raw)) return raw;
     if (NETEASE.test(raw)) {
       var u = raw.replace(/^http:/i, "https:").replace(/([?&])param=\d+y\d+&?/, "$1").replace(/[?&]$/, "");
       return u + (u.indexOf("?") > -1 ? "&" : "?") + "param=" + size + "y" + size;
@@ -188,7 +193,7 @@
   function coverSameOrigin(raw, size) {
     raw = normCover(raw);
     if (!raw) return "";
-    return raw.charAt(0) === "/" ? coverSrc(raw, size) : "/api/cover-proxy?url=" + enc(raw) + "&size=" + size;
+    return isLocalPath(raw) ? coverSrc(raw, size) : "/api/cover-proxy?url=" + enc(raw) + "&size=" + size;
   }
   function imgTag(raw, size, w) {
     var src = coverSrc(raw, size);
@@ -359,6 +364,11 @@
       prev.classList.remove("on");
       artFlip = !artFlip;
     };
+    probe.onerror = function () {
+      if (artWanted !== url) return;
+      el.artA.classList.remove("on"); el.artB.classList.remove("on");
+      root.style.removeProperty("--art");
+    };
     probe.src = url;
   }
 
@@ -366,8 +376,9 @@
   var shownCover = null;
   function setCover(raw) {
     raw = normCover(raw);
-    if (raw === shownCover) return;
-    shownCover = raw;
+    var key = raw ? coverSrc(raw, 600) : "";
+    if (key === shownCover) return;
+    shownCover = key;
     el.cover.classList.remove("has-art", "broken");
     el.miniCover.parentNode.classList.remove("broken");
     if (!raw) {
@@ -506,8 +517,10 @@
     syncLyric(true);
   }
   function seekWhenReady(sec) {
+    var tok = playToken;
     function once() {
       audio.removeEventListener("loadedmetadata", once);
+      if (tok !== playToken) return;
       try { audio.currentTime = clamp(sec, 0, Math.max(0, (audio.duration || sec + 1) - 1)); } catch (_) {}
     }
     audio.addEventListener("loadedmetadata", once);
@@ -663,13 +676,18 @@
   function handleError() {
     if (!cur || !audio.getAttribute("src")) return;
     var token = playToken;
-    if (!cur._retried) {
-      // one more try: the server resolves a dead CDN link again
+    // one more try (the server resolves a dead CDN link again); allowed again
+    // once the song has played fine for a while, so a second network blip
+    // in a long track does not skip it
+    var playedFine = cur._okSince && Date.now() - cur._okSince > 15000;
+    if (!cur._retried || playedFine) {
       cur._retried = true;
+      cur._okSince = 0;
       var at = audio.currentTime || 0;
+      var resume = !userPaused;
       audio.src = streamUrl(cur.id, "&retry=" + Date.now());
       if (at > 1) seekWhenReady(at);
-      audio.play().catch(function () {});
+      if (resume) audio.play().catch(function () {});
       return;
     }
     body.classList.remove("loading");
@@ -719,6 +737,7 @@
   audio.addEventListener("playing", function () {
     body.classList.remove("loading");
     failStreak = 0;
+    if (cur && !cur._okSince) cur._okSince = Date.now();
     if (prefetchedFor !== playToken) { prefetchedFor = playToken; prefetchNext(); }
   });
   audio.addEventListener("waiting", function () { if (!audio.paused) body.classList.add("loading"); });
@@ -1238,10 +1257,18 @@
     closeMenu();
     if (i >= 0) rowAct(b.getAttribute("data-mact"), ctx.v, i);
   });
+  var swallowClickUntil = 0;
   document.addEventListener("pointerdown", function (e) {
-    if (!el.menu.hidden && !el.menu.contains(e.target) && !e.target.closest('[data-act="more"]')) closeMenu();
+    if (!el.menu.hidden && !el.menu.contains(e.target) && !e.target.closest('[data-act="more"]')) {
+      closeMenu();
+      // the tap that dismisses the menu must not also play the row under it
+      if (e.target.closest(".row")) swallowClickUntil = Date.now() + 600;
+    }
     if (!el.exportMenu.hidden && !e.target.closest(".tool-wrap")) closeExport();
   });
+  document.addEventListener("click", function (e) {
+    if (Date.now() < swallowClickUntil) { swallowClickUntil = 0; e.stopPropagation(); e.preventDefault(); }
+  }, true);
   el.panelBody.addEventListener("scroll", closeMenu, { passive: true });
   window.addEventListener("resize", closeMenu);
 
@@ -1537,16 +1564,18 @@
   function resolveAndPlay(raw, opts) {
     opts = opts || {};
     toast("正在解析…");
+    var tok = playToken;
     return api("/api/parse?q=" + enc(raw)).then(function (r) {
       if (!r.ok || !r.data) { if (!opts.quiet) toast("解析失败：" + (r.error || "找不到这首歌")); return null; }
       var d = r.data;
       var t = plain({ id: d.id, name: d.name, artist: d.artist, album: d.album, cover: d.cover, duration: d.duration, cached: d.cached });
       var i = addToMy(t, true);
       S.playlist[i] = Object.assign({}, S.playlist[i], t);
-      setView("playlist");
+      var stillWaiting = tok === playToken;
+      if (stillWaiting) setView("playlist");
       renderView("playlist");
       toast("已加入我的列表：" + t.name);
-      if (opts.play !== false) playIndex("my", i, { autoplay: opts.autoplay !== false });
+      if (opts.play !== false && stillWaiting) playIndex("my", i, { autoplay: opts.autoplay !== false });
       return t;
     });
   }
@@ -1563,6 +1592,7 @@
     setView("radio");
     if (!hadList) renderView("radio");
     toast(hadList ? "换一批…" : "正在挑歌…");
+    var tok = playToken;
     api("/api/radio/today?limit=30" + (exclude ? "&exclude=" + enc(exclude) : ""), { timeout: 45000 }).then(function (r) {
       radioLoading = false;
       buttons.forEach(function (b) { b.disabled = false; });
@@ -1573,7 +1603,7 @@
       renderView("radio");
       el.panelBody.scrollTop = 0;
       toast("新的一批 " + S.radio.length + " 首" + (r.overlap ? "（重复 " + r.overlap + " 首）" : ""));
-      playIndex("radio", 0);
+      if (tok === playToken) playIndex("radio", 0);
     });
   }
   $("#btnRadio").addEventListener("click", loadRadio);
@@ -1984,6 +2014,16 @@
     var kind = $("#upAddKind").value;
     var wrap = $("#upAddPlatformWrap");
     if (wrap) wrap.hidden = kind !== "gd" && kind !== "hi";
+    // each kind lists only the platforms it serves (hi has 网易云 + 酷我)
+    var sel = $("#upAddPlatform");
+    if (!sel) return;
+    var first = null;
+    Array.prototype.forEach.call(sel.options, function (o) {
+      var ok = (o.getAttribute("data-kind") || "").split(" ").indexOf(kind) > -1;
+      o.hidden = o.disabled = !ok;
+      if (ok && !first) first = o;
+    });
+    if (first && sel.selectedOptions[0] && sel.selectedOptions[0].disabled) sel.value = first.value;
   }
   var upAddKind = $("#upAddKind");
   if (upAddKind) upAddKind.addEventListener("change", syncAddPlatform);
@@ -2213,6 +2253,7 @@
       if (body.classList.contains("sheet-open")) { closeSheet(false); return; }
       if (body.classList.contains("theater-on")) { setTheater(false); return; }
     }
+    if (e.defaultPrevented) return;
     if (/INPUT|SELECT|TEXTAREA/.test(tag) || e.metaKey || e.ctrlKey || document.querySelector("dialog[open]")) return;
     if (e.target.closest && e.target.closest(".row") && (e.key === "Enter" || e.altKey || e.key === "Delete" || e.key === "Backspace")) return;
     switch (e.key) {

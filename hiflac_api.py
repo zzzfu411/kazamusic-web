@@ -111,14 +111,23 @@ def _save() -> None:
         log.debug("hi token save failed: %s", e)
 
 
-def remember(sid: str, rec: dict[str, Any]) -> None:
+def remember_many(recs: dict[str, dict[str, Any]]) -> None:
+    """Store the tokens of a whole search page with one write to disk."""
+    if not recs:
+        return
     with _LOCK:
         _load()
-        _MEM[sid] = rec
+        for sid, rec in recs.items():
+            _MEM.pop(sid, None)  # re-insert so the newest stay at the end
+            _MEM[sid] = rec
         if len(_MEM) > 2000:
-            for k in list(_MEM)[:400]:
+            for k in list(_MEM)[: len(_MEM) - 1600]:
                 _MEM.pop(k, None)
         _save()
+
+
+def remember(sid: str, rec: dict[str, Any]) -> None:
+    remember_many({sid: rec})
 
 
 def recall(sid: str) -> dict[str, Any]:
@@ -193,6 +202,7 @@ def search(
     data = body.get("data") if isinstance(body.get("data"), dict) else {}
     items = data.get("list") or []
     out = []
+    recs: dict[str, dict[str, Any]] = {}
     for item in items:
         if not isinstance(item, dict) or item.get("id") in (None, ""):
             continue
@@ -214,7 +224,7 @@ def search(
             "native_id": native,
             "saved_at": int(time.time()),
         }
-        remember(sid, rec)
+        recs[sid] = rec
         out.append(
             {
                 "id": sid,
@@ -229,22 +239,56 @@ def search(
         )
         if len(out) >= size:
             break
+    remember_many(recs)
     return out
 
 
-def _resolve_token(sid: str, platform: str, native: str, base: str) -> dict[str, Any]:
+# A token older than this is refreshed (by searching the title again) when a
+# call made with it fails; the site's own page keeps play links for an hour.
+_TOKEN_STALE = 5 * 60
+
+
+def _resolve_token(
+    sid: str, platform: str, native: str, base: str, *, refresh: bool = False
+) -> dict[str, Any]:
     rec = recall(sid)
-    if rec.get("sign") and rec.get("time"):
+    if rec.get("sign") and rec.get("time") and not refresh:
         return rec
     name = str(rec.get("name") or "")
     if not name:
         return rec
     try:
-        search(name, source=platform, limit=8, base=base)
+        query = f"{name} {rec.get('artist') or ''}".strip()
+        search(query, source=platform, limit=10, base=base)
     except Exception as e:
         log.warning("hi re-search failed: %s", e)
         return rec
     return recall(sid) or rec
+
+
+def _token_stale(rec: dict[str, Any]) -> bool:
+    try:
+        return time.time() - int(rec.get("saved_at") or 0) > _TOKEN_STALE
+    except (TypeError, ValueError):
+        return True
+
+
+def _post_signed(
+    root: str, act: str, sid: str, platform: str, native: str, rec: dict[str, Any], fields: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """POST with the stored time+sign; on failure with an old token, refresh it once."""
+    def call(r: dict[str, Any]) -> dict[str, Any]:
+        return _post(root, act, {**fields, "time": r.get("time") or "", "sign": r.get("sign") or ""})
+
+    try:
+        return call(rec), rec
+    except Exception:
+        if not _token_stale(rec):
+            raise
+    fresh = _resolve_token(sid, platform, native, root, refresh=True)
+    if not fresh.get("sign") or fresh.get("sign") == rec.get("sign"):
+        raise RuntimeError("hi token refresh failed")
+    return call(fresh), fresh
 
 
 def song_meta(
@@ -273,16 +317,18 @@ def song_meta(
             "native_id": native_id,
             "_source": "hi",
         }
-    body = _post(
+    body, rec = _post_signed(
         root,
         "getUrl",
+        sid,
+        platform,
+        native_id,
+        rec,
         {
             "platform": platform,
             "songid": native_id,
             "format": chosen.get("format") or "mp3",
             "bitrate": chosen.get("bitrate") or "320",
-            "time": rec.get("time") or "",
-            "sign": rec.get("sign") or "",
         },
     )
     data = body.get("data") if isinstance(body.get("data"), dict) else {}
@@ -319,15 +365,14 @@ def lyric(native_id: str, *, source: str, base: str | None = None) -> dict[str, 
     rec = _resolve_token(sid, platform, native_id, root)
     if not rec.get("sign"):
         return {"lrc": "", "tlyric": ""}
-    body = _post(
+    body, _rec = _post_signed(
         root,
         "getLyric",
-        {
-            "platform": platform,
-            "songid": native_id,
-            "time": rec.get("time") or "",
-            "sign": rec.get("sign") or "",
-        },
+        sid,
+        platform,
+        native_id,
+        rec,
+        {"platform": platform, "songid": native_id},
     )
     text = body.get("data") or ""
     if not isinstance(text, str):
@@ -339,7 +384,8 @@ def probe(base: str | None = None, keyword: str = "晴天", platform: str = "wyy
     t0 = time.time()
     checks: list[dict[str, Any]] = []
     try:
-        songs = search(keyword, source=platform, limit=1, base=base)
+        # size=1 comes back empty from this site even when results exist
+        songs = search(keyword, source=platform, limit=5, base=base)
         checks.append(
             {
                 "name": "search",
@@ -365,7 +411,10 @@ def probe(base: str | None = None, keyword: str = "晴天", platform: str = "wyy
     if songs:
         t1 = time.time()
         try:
-            meta = song_meta(songs[0]["native_id"], source=songs[0]["platform"], base=base)
+            for song in songs[:3]:
+                meta = song_meta(song["native_id"], source=song["platform"], base=base)
+                if meta.get("url"):
+                    break
             host = urlparse(meta.get("url") or "").netloc
             ok = bool(meta.get("url"))
             checks.append(

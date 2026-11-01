@@ -1,6 +1,7 @@
 """Persistent runtime settings (admin-tunable, survives restart)."""
 from __future__ import annotations
 
+import copy
 import json
 import re
 import threading
@@ -295,16 +296,34 @@ def _migrate(data: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _read() -> dict[str, Any]:
-    if not _PATH.exists():
-        return _migrate({})
+# The upstream code asks for the settings several times per request (provider,
+# source lookup, timeouts). They change only when the admin saves, so the parsed
+# file is kept and read again only when its mtime/size changes.
+_parsed: dict[str, Any] = {"key": None, "data": None}
+
+
+def _file_key() -> tuple | None:
     try:
-        data = json.loads(_PATH.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
-            return _migrate({})
-        return _migrate(data)
-    except Exception:
-        return _migrate({})
+        st = _PATH.stat()
+    except OSError:
+        return ("missing",)
+    return (st.st_mtime_ns, st.st_size)
+
+
+def _read() -> dict[str, Any]:
+    key = _file_key()
+    if key is not None and _parsed["key"] == key and _parsed["data"] is not None:
+        return copy.deepcopy(_parsed["data"])
+    if key == ("missing",):
+        out = _migrate({})
+    else:
+        try:
+            data = json.loads(_PATH.read_text(encoding="utf-8"))
+            out = _migrate(data if isinstance(data, dict) else {})
+        except Exception:
+            out = _migrate({})
+    _parsed["key"], _parsed["data"] = key, copy.deepcopy(out)
+    return out
 
 
 def _write(data: dict[str, Any]) -> None:
@@ -314,6 +333,7 @@ def _write(data: dict[str, Any]) -> None:
     payload = dict(data)
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(_PATH)
+    _parsed["key"] = None
 
 
 def get_all() -> dict[str, Any]:
@@ -496,16 +516,20 @@ def provider_list_for_ui() -> list[dict[str, Any]]:
 
 
 def catalog_for_ui() -> list[dict[str, Any]]:
-    existing = {s["endpoint"].rstrip("/") for s in list_sources()}
+    sources = list_sources()
+    # gd / hi / ors serve several platforms from one endpoint, so the platform
+    # is part of what makes an entry "already added" (GD Qobuz shares GD's URL).
+    existing = {
+        (s["endpoint"].rstrip("/"), s.get("platform") or "") for s in sources
+    }
+    ids = {s["id"] for s in sources}
     out = []
     for c in CATALOG:
         ep = (c.get("endpoint") or "").rstrip("/")
         out.append(
             {
                 **c,
-                "already": ep in existing or any(
-                    s["id"] == c["id"] for s in list_sources()
-                ),
+                "already": (ep, c.get("platform") or "") in existing or c["id"] in ids,
                 "disabled_add": bool(c.get("disabled_add")),
             }
         )

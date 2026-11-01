@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import re
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 import requests
 
@@ -153,7 +153,10 @@ def chksz_get(
         chksz_quota.ingest_response(r.headers, counted=True)
     except Exception:
         pass
-    r.raise_for_status()
+    if r.status_code >= 400:
+        # not raise_for_status(): its message carries the full URL, apikey
+        # included, and ends up in the journal
+        raise RuntimeError(f"chksz {path} HTTP {r.status_code}")
     try:
         return r.json()
     except Exception:
@@ -284,7 +287,8 @@ def _search_chksz(
         base=base,
     )
     if body.get("code") != 200:
-        return []
+        # quota spent, key rejected, upstream error: not "no results"
+        raise RuntimeError(f"chksz search code={body.get('code')} {str(body.get('msg') or '')[:80]}")
     raw = body.get("data", {})
     if isinstance(raw, dict):
         raw = raw.get("songs", [])
@@ -384,6 +388,13 @@ def _src_for_kind(kind: str, platform: str | None = None) -> dict:
     }
 
 
+def gd_lazy_pic(platform: str, pic_id: str) -> str:
+    """Same-origin cover link resolved on first view (app.py /api/gd/pic)."""
+    if not pic_id:
+        return ""
+    return f"/api/gd/pic?source={quote(str(platform), safe='')}&id={quote(str(pic_id), safe='')}"
+
+
 def _search_gd(keyword: str, limit: int, src: dict) -> list[dict]:
     import gd_api
 
@@ -393,6 +404,9 @@ def _search_gd(keyword: str, limit: int, src: dict) -> list[dict]:
         limit=limit,
         base=src.get("endpoint"),
     )
+    for s in songs:
+        if not s.get("picUrl"):
+            s["picUrl"] = gd_lazy_pic(s.get("platform") or "", s.get("pic_id") or "")
     return [_row_from_external(s, src.get("id") or "gd") for s in songs]
 
 
@@ -422,6 +436,8 @@ def _meta_gd(sid: str, src: dict, level: str | None = None) -> dict:
         level=level,
         base=src.get("endpoint"),
     )
+    if not meta.get("picUrl"):
+        meta["picUrl"] = gd_lazy_pic(meta.get("platform") or platform, meta.get("pic_id") or native)
     meta["_source"] = src.get("id") or "gd"
     return meta
 
@@ -449,7 +465,10 @@ def _lyric_from_gd(sid: str, src: dict) -> dict | None:
 
     parsed = gd_api.parse_sid(sid)
     if not parsed:
-        return None
+        # a plain NetEase id, when a GD NetEase source is the active / fallback one
+        if not (str(sid).isdigit() and _netease_capable(src)):
+            return None
+        parsed = ("netease", str(sid))
     platform, native = parsed
     extra = gd_api.recall(gd_api.make_sid(platform, native))
     lyric_id = str(extra.get("lyric_id") or native)
@@ -519,6 +538,53 @@ def _search_meting(
     return songs[:limit]
 
 
+# When the chosen source fails for a plain NetEase id, these kinds can answer
+# the same id; tried in this order (GD is quick; Meting last, as it can return
+# an HTML page or a preview clip for songs it cannot really serve).
+_NETEASE_FALLBACK_ORDER = {"gd": 0, "chksz": 1, "meting": 2}
+
+
+def _netease_capable(src: dict) -> bool:
+    kind = src.get("kind")
+    if kind == "gd":
+        return str(src.get("platform") or "netease").lower() in ("netease", "wyy")
+    return kind in ("chksz", "meting")
+
+
+def _fallback_sources(exclude_id: str | None) -> list[dict]:
+    out = [
+        s for s in _active_sources()
+        if s.get("id") != exclude_id and _netease_capable(s)
+    ]
+    out.sort(key=lambda s: _NETEASE_FALLBACK_ORDER.get(str(s.get("kind")), 9))
+    return out
+
+
+def _composite_route(sid: str) -> tuple[str, dict] | None:
+    """(kind, source) for ids minted by GD / flac.music.hi.cn / ORS, else None."""
+    import gd_api
+    import hiflac_api
+    import ors_api
+
+    parsed = gd_api.parse_sid(sid)
+    if parsed:
+        return "gd", _src_for_kind("gd", parsed[0])
+    parsed = hiflac_api.parse_sid(sid)
+    if parsed:
+        return "hi", _src_for_kind("hi", parsed[0])
+    if ors_api.parse_sid(sid):
+        return "ors", next(
+            (s for s in _active_sources() if s.get("kind") == "ors"),
+            {
+                "id": "ors_de5",
+                "kind": "ors",
+                "endpoint": "https://music.ors.de5.net",
+                "platform": "qq",
+            },
+        )
+    return None
+
+
 def _try_sources(op_name: str, fn_for_source) -> Any:
     """
     Run fn_for_source(src) over enabled sources in order (auto mode).
@@ -577,10 +643,20 @@ def search_songs(keyword: str, limit: int = 30) -> list[dict]:
                 return []
         return []
     try:
+        # an empty list is a real answer ("nothing found"); only errors fall back
         return run_one(src) or []
     except Exception as e:
         log.warning("search via %s failed: %s", src.get("id"), e)
-        return []
+    for fb in _fallback_sources(src.get("id")):
+        try:
+            out = run_one(fb)
+        except Exception as e:
+            log.warning("search fallback via %s failed: %s", fb.get("id"), e)
+            continue
+        if out:
+            log.info("search %r served by fallback %s", keyword, fb.get("id"))
+            return out
+    return []
 
 
 def _meta_chksz(sid: str, level: str, base: str | None = None, source_id: str = "chksz") -> dict:
@@ -704,6 +780,10 @@ def _probe_audio_meta(play_url: str, requested_br: int = 320) -> dict[str, Any]:
         return info
 
     ct = (headers.get("content-type") or "").lower()
+    # Meting answers songs it cannot serve (VIP) with an HTML page, status 200
+    if ct.startswith("text/") or "json" in ct:
+        info["playable"] = False
+        return info
     cr = headers.get("content-range") or ""
     m = re.search(r"/(\d+)\s*$", cr)
     if m:
@@ -765,6 +845,8 @@ def _meta_meting(
         log.warning("meting song failed (%s): %s", source_id, e)
 
     probe = _probe_audio_meta(play_url, requested_br=br_kbps)
+    if probe.get("playable") is False:
+        play_url = ""
     size = int(probe.get("size") or 0)
     br = int(probe.get("br") or 0)
     if size and duration_ms:
@@ -876,58 +958,47 @@ def get_song_meta(sid: str, level: str | None = None) -> dict:
             return _meta_hi(sid, src=src, level=level)
         return {}
 
-    # Composite ids stay on the source that minted them.
-    try:
-        import gd_api
+    # Composite ids stay on the source that minted them. A failure there is
+    # final: handing "gd:…" to chksz would only spend quota on a bad id.
+    route = _composite_route(sid)
+    if route is not None:
+        try:
+            return run_one(route[1]) or {}
+        except Exception as e:
+            log.warning("song meta for %s via %s failed: %s", sid, route[1].get("id"), e)
+            return {}
+    if not sid.isdigit():
+        return {}
 
-        parsed = gd_api.parse_sid(sid)
-        if parsed:
-            return _meta_gd(sid, src=_src_for_kind("gd", parsed[0]), level=level)
-    except Exception as e:
-        log.debug("gd sid detect: %s", e)
-    try:
-        import hiflac_api
-
-        parsed = hiflac_api.parse_sid(sid)
-        if parsed:
-            return _meta_hi(sid, src=_src_for_kind("hi", parsed[0]), level=level)
-    except Exception as e:
-        log.debug("hi sid detect: %s", e)
-
-    # ORS composite ids always go through ors regardless of current provider
-    try:
-        import ors_api
-
-        if ors_api.parse_sid(sid):
-            # find any enabled ors source, else default endpoint
-            ors_src = next(
-                (s for s in _active_sources() if s.get("kind") == "ors"),
-                {
-                    "id": "ors_de5",
-                    "kind": "ors",
-                    "endpoint": "https://music.ors.de5.net",
-                    "platform": "qq",
-                },
-            )
-            return _meta_ors(sid, src=ors_src, level=level)
-    except Exception as e:
-        log.debug("ors sid detect: %s", e)
+    def attempt(src: dict) -> dict:
+        try:
+            raw = run_one(src) or {}
+        except Exception as e:
+            log.warning("song meta via %s failed: %s", src.get("id"), e)
+            return {}
+        if raw.get("url"):
+            raw = dict(raw)
+            raw["id"] = int(sid)  # GD answers as "gd:netease:<id>"; keep the asked id
+        return raw
 
     if provider == "auto":
-        def _ok(src):
-            raw = run_one(src)
-            return raw if raw and raw.get("url") else None
-
-        return _try_sources("song_meta", _ok) or {}
-
-    src = _source_by_id(provider)
-    if not src:
-        return _meta_meting(sid)
-    try:
-        return run_one(src) or {}
-    except Exception as e:
-        log.warning("song meta via %s failed: %s", src.get("id"), e)
-        return {}
+        # only sources that understand NetEase ids (ORS would read it as a QQ id)
+        candidates = [s for s in _active_sources() if _netease_capable(s)]
+    else:
+        src = _source_by_id(provider)
+        if not src:
+            return _meta_meting(sid)
+        candidates = [src] + _fallback_sources(src.get("id"))
+    first: dict = {}
+    for i, src in enumerate(candidates):
+        raw = attempt(src)
+        if raw.get("url"):
+            if i and provider != "auto":
+                log.info("song %s served by fallback %s", sid, src.get("id"))
+            return raw
+        if i == 0:
+            first = raw  # names/cover from the chosen source, even without a link
+    return first
 
 
 def enrich_meta_duration(meta: dict, duration_ms: int) -> dict:
@@ -1029,57 +1100,35 @@ def get_lyric(sid: str) -> dict:
             return _lyric_from_hi(sid, src=src)
         return None
 
-    try:
-        import gd_api
-
-        parsed = gd_api.parse_sid(sid)
-        if parsed:
-            return _lyric_from_gd(sid, _src_for_kind("gd", parsed[0])) or empty
-    except Exception:
-        pass
-    try:
-        import hiflac_api
-
-        parsed = hiflac_api.parse_sid(sid)
-        if parsed:
-            return _lyric_from_hi(sid, _src_for_kind("hi", parsed[0])) or empty
-    except Exception:
-        pass
-
-    try:
-        import ors_api
-
-        if ors_api.parse_sid(sid):
-            ors_src = next(
-                (s for s in _active_sources() if s.get("kind") == "ors"),
-                {
-                    "id": "ors_de5",
-                    "kind": "ors",
-                    "endpoint": "https://music.ors.de5.net",
-                },
-            )
-            return run_one(ors_src) or empty
-    except Exception:
-        pass
+    route = _composite_route(sid)
+    if route is not None:
+        try:
+            return run_one(route[1]) or empty
+        except Exception as e:
+            log.warning("lyric for %s failed: %s", sid, e)
+            return empty
+    if not sid.isdigit():
+        return empty
 
     if provider == "auto":
-        def _ok(src):
-            d = run_one(src)
-            return d if d and (d.get("lrc") or d.get("tlyric")) else None
-
-        return _try_sources("lyric", _ok) or empty
-
-    src = _source_by_id(provider)
-    if not src:
+        candidates = [s for s in _active_sources() if _netease_capable(s)]
+    else:
+        src = _source_by_id(provider)
+        if not src:
+            try:
+                return _lyric_from_meting(sid) or empty
+            except Exception:
+                return empty
+        candidates = [src] + _fallback_sources(src.get("id"))
+    for src in candidates:
         try:
-            return _lyric_from_meting(sid) or empty
-        except Exception:
-            return empty
-    try:
-        return run_one(src) or empty
-    except Exception as e:
-        log.warning("lyric via %s failed: %s", src.get("id"), e)
-        return empty
+            d = run_one(src)
+        except Exception as e:
+            log.warning("lyric via %s failed: %s", src.get("id"), e)
+            continue
+        if d and (d.get("lrc") or d.get("tlyric")):
+            return d
+    return empty
 
 
 def get_playlist_tracks(pid: str) -> list[dict]:
@@ -1144,11 +1193,21 @@ def get_playlist_tracks(pid: str) -> list[dict]:
             return from_meting()
         except Exception:
             return []
-    try:
-        return run_one(src) or []
-    except Exception as e:
-        log.warning("playlist via %s failed: %s", src.get("id"), e)
-        return []
+    # NetEase playlists come only from chksz / Meting: with GD / ORS / hi chosen
+    # (or the chosen one failing) the others are asked in turn.
+    candidates = [src] + [
+        s for s in _active_sources()
+        if s.get("id") != src.get("id") and s.get("kind") in ("chksz", "meting")
+    ]
+    for one in candidates:
+        try:
+            out = run_one(one)
+        except Exception as e:
+            log.warning("playlist via %s failed: %s", one.get("id"), e)
+            continue
+        if out:
+            return out
+    return []
 
 
 def provider_status() -> dict[str, Any]:
@@ -1458,44 +1517,46 @@ def probe_all(sid: str = "416892104", keyword: str = "晴天") -> dict[str, Any]
     """
     import time
 
+    from concurrent.futures import ThreadPoolExecutor
+
     t0 = time.perf_counter()
     sources = _rt().list_sources(enabled_only=False)
-    results = []
-    for src in sources:
+
+    def one(src: dict) -> dict:
         if not src.get("enabled", True):
-            results.append(
-                {
-                    "id": src["id"],
-                    "name": src.get("name"),
-                    "kind": src.get("kind"),
-                    "endpoint": src.get("endpoint"),
-                    "alive": False,
-                    "ok_count": 0,
-                    "total": 0,
-                    "ms": 0,
-                    "checks": [],
-                    "summary": "已禁用",
-                    "disabled": True,
-                }
-            )
-            continue
+            return {
+                "id": src["id"],
+                "name": src.get("name"),
+                "kind": src.get("kind"),
+                "endpoint": src.get("endpoint"),
+                "alive": False,
+                "ok_count": 0,
+                "total": 0,
+                "ms": 0,
+                "checks": [],
+                "summary": "已禁用",
+                "disabled": True,
+            }
         try:
-            results.append(probe_source(src, sid=sid, keyword=keyword))
+            return probe_source(src, sid=sid, keyword=keyword)
         except Exception as e:
-            results.append(
-                {
-                    "id": src.get("id"),
-                    "name": src.get("name"),
-                    "kind": src.get("kind"),
-                    "endpoint": src.get("endpoint"),
-                    "alive": False,
-                    "ok_count": 0,
-                    "total": 0,
-                    "ms": 0,
-                    "checks": [],
-                    "summary": f"探测异常: {e}",
-                }
-            )
+            return {
+                "id": src.get("id"),
+                "name": src.get("name"),
+                "kind": src.get("kind"),
+                "endpoint": src.get("endpoint"),
+                "alive": False,
+                "ok_count": 0,
+                "total": 0,
+                "ms": 0,
+                "checks": [],
+                "summary": f"探测异常: {e}",
+            }
+
+    # sources are independent: probing them side by side takes as long as the
+    # slowest one instead of the sum (9 sources used to take most of a minute)
+    with ThreadPoolExecutor(max_workers=6, thread_name_prefix="probe") as pool:
+        results = list(pool.map(one, sources))
 
     alive = [r for r in results if r.get("alive")]
     if len(alive) >= 2:

@@ -1032,21 +1032,12 @@ def health():
 def favicon():
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
-        '<defs>'
-        '<linearGradient id="kg" x1="0%" y1="0%" x2="100%" y2="100%">'
-        '<stop offset="0%" stop-color="#38bdf8"/>'
-        '<stop offset="52%" stop-color="#818cf8"/>'
-        '<stop offset="100%" stop-color="#c084fc"/>'
-        '</linearGradient>'
-        '</defs>'
-        '<rect width="100" height="100" rx="24" fill="#090d16"/>'
-        '<circle cx="50" cy="50" r="36" fill="none" stroke="url(#kg)" stroke-width="2.2" stroke-opacity="0.32"/>'
-        '<circle cx="50" cy="50" r="27" fill="none" stroke="url(#kg)" stroke-width="1.8" stroke-opacity="0.25"/>'
-        '<circle cx="50" cy="50" r="8" fill="none" stroke="url(#kg)" stroke-width="3.2"/>'
-        '<path d="M31 24v52M31 50l28-26M37 45l25 31" fill="none" stroke="url(#kg)" stroke-width="7.5" '
-        'stroke-linecap="round" stroke-linejoin="round"/>'
-        '<path d="M68 34a22 22 0 0 1 0 32M76 27a31 31 0 0 1 0 46" fill="none" stroke="url(#kg)" '
-        'stroke-width="4.5" stroke-linecap="round"/>'
+        '<rect width="100" height="100" rx="21" fill="#141312"/>'
+        '<circle cx="50" cy="50" r="35" fill="none" stroke="#ece7de" stroke-width="1" stroke-opacity="0.18"/>'
+        '<circle cx="50" cy="47" r="23" fill="none" stroke="#ece7de" stroke-width="0.9" stroke-opacity="0.14"/>'
+        '<rect x="31.5" y="27" width="4.4" height="46" fill="#ece7de"/>'
+        '<polygon points="39,50 64.5,27 70,27 44.5,50 70.5,73 65,73" fill="#ece7de"/>'
+        '<circle cx="68" cy="50" r="2.1" fill="#d6cec0"/>'
         '</svg>'
     )
     resp = Response(svg, mimetype="image/svg+xml")

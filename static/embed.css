@@ -1,66 +1,71 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: transparent; }
 body {
-  font: 14px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
-  color: rgba(255, 255, 255, 0.95);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  color: #ece8df;
   -webkit-font-smoothing: antialiased;
 }
 .embed {
   position: relative; display: flex; align-items: center; gap: 14px; height: 100%; min-height: 76px;
-  padding: 12px 14px; border-radius: 16px; overflow: hidden;
-  background: #090d16;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  padding: 12px 15px; border-radius: 6px; overflow: hidden;
+  background: #131311;
+  border: 1px solid rgba(236, 232, 223, 0.14);
   isolation: isolate;
 }
 .art {
   position: absolute; inset: -22%; z-index: -2;
   background: center / cover no-repeat;
-  filter: blur(34px) saturate(1.65); opacity: 0.58;
+  filter: blur(42px) saturate(1.08); opacity: 0.36;
 }
 .art-shade {
   position: absolute; inset: 0; z-index: -1;
-  background: linear-gradient(95deg, rgba(9, 13, 22, 0.55) 0%, rgba(9, 13, 22, 0.88) 100%);
+  background: linear-gradient(95deg, rgba(17, 17, 16, 0.64) 0%, rgba(17, 17, 16, 0.90) 100%);
 }
 .cover-wrap {
-  position: relative; width: 54px; height: 54px; border-radius: 11px; overflow: hidden; flex: none;
-  background: #070a12;
-  box-shadow: 0 8px 22px -6px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  position: relative; width: 52px; height: 52px; border-radius: 3px; overflow: hidden; flex: none;
+  background: #181715;
+  box-shadow: 0 8px 20px -6px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.09);
 }
 .cover-fallback, .cover {
   position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block;
 }
 .cover[hidden], .cover-fallback[hidden] { display: none; }
 .meta { flex: 1; min-width: 0; padding-right: 4px; }
-.t { font-weight: 700; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.a { font-size: 12px; color: rgba(226, 232, 240, 0.66); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.t {
+  font-family: "Songti SC", "STSong", "Hiragino Mincho ProN", "Noto Serif SC", Georgia, serif;
+  font-weight: 600; font-size: 14.5px; letter-spacing: 0.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.a {
+  font-size: 11.5px; color: rgba(236, 232, 223, 0.62);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px;
+}
 .bar {
-  position: relative; height: 4px; margin-top: 9px; border-radius: 999px;
-  background: rgba(255, 255, 255, 0.15); cursor: pointer; overflow: hidden;
+  position: relative; height: 2px; margin-top: 10px;
+  background: rgba(236, 232, 223, 0.16); cursor: pointer; overflow: hidden;
 }
 .bar i {
-  position: absolute; inset: 0; border-radius: 999px;
-  background: linear-gradient(90deg, #38bdf8, #818cf8);
+  position: absolute; inset: 0;
+  background: #e6e1d6;
   transform-origin: left; transform: scaleX(0);
 }
 .play {
-  width: 42px; height: 42px; flex: none; border: 0; border-radius: 50%;
+  width: 38px; height: 38px; flex: none; border: 0; border-radius: 50%;
   display: grid; place-items: center;
-  background: linear-gradient(135deg, #38bdf8, #818cf8);
-  color: #06101e; cursor: pointer;
-  box-shadow: 0 8px 20px -6px rgba(56, 189, 248, 0.5);
-  transition: transform 0.15s;
+  background: #e6e1d6;
+  color: #121210; cursor: pointer;
+  transition: transform 0.16s, opacity 0.16s;
 }
-.play:hover { transform: scale(1.06); }
+.play:hover { transform: scale(1.05); opacity: 0.92; }
 .play:active { transform: scale(0.95); }
-.play svg { width: 20px; height: 20px; fill: currentColor; }
+.play svg { width: 17px; height: 17px; fill: currentColor; }
 .play svg[hidden] { display: none; }
 .open {
-  position: absolute; top: 7px; right: 11px;
+  position: absolute; top: 7px; right: 12px;
   display: inline-flex; align-items: center; gap: 4px;
-  font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
-  color: rgba(226, 232, 240, 0.55); text-decoration: none;
+  font: 500 9.5px/1 "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  letter-spacing: 0.14em;
+  color: rgba(236, 232, 223, 0.48); text-decoration: none;
   transition: color 0.15s;
 }
-.open img { border-radius: 3px; }
-.open:hover { color: #38bdf8; }
+.open:hover { color: #ece8df; }

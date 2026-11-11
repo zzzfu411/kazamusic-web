@@ -15,20 +15,20 @@
     standard: "标准", higher: "较高", exhigh: "极高", lossless: "无损", hires: "Hi-Res", jymaster: "臻品母带",
   };
   var THEMES = {
-    aurora: { name: "极光星云", meta: "#080c15" },
-    apple: { name: "流光绯红", meta: "#09090c" },
-    daylight: { name: "清透白昼", meta: "#eef2f9" },
-    emerald: { name: "北欧森屿", meta: "#06100e" },
-    sunset: { name: "落日微醺", meta: "#0e0816" },
+    obsidian: { name: "曜石炭墨", meta: "#111110" },
+    washi: { name: "宣纸白昼", meta: "#f2eee6" },
+    walnut: { name: "爵士胡桃", meta: "#151210" },
+    celadon: { name: "青瓷苔痕", meta: "#0f1312" },
+    vermilion: { name: "暗室朱印", meta: "#131111" },
   };
-  var THEME_ORDER = ["aurora", "apple", "daylight", "emerald", "sunset"];
+  var THEME_ORDER = ["obsidian", "washi", "walnut", "celadon", "vermilion"];
   var MODES = ["loop", "shuffle", "repeat-one"];
   var MODE_INFO = {
     loop: { icon: "#i-repeat", label: "列表循环" },
     shuffle: { icon: "#i-shuffle", label: "随机播放" },
     "repeat-one": { icon: "#i-repeat-one", label: "单曲循环" },
   };
-  var DEFAULT_ACCENT = [56, 189, 248];
+  var DEFAULT_ACCENT = [230, 225, 214];
   var NETEASE = /^https?:\/\/p\d+\.music\.126\.net\//i;
   var LINKISH = /music\.163\.com|163cn\.tv|song\?id=|^\s*\d{5,}\s*$/i;
   var TRANSLATION_MARK = /^\s*\[(?:翻译歌词|中文翻译|翻译|译文|translation(?:\s+lyrics?)?)\]\s*$/i;
@@ -46,11 +46,12 @@
   var el = {
     search: $("#searchInput"), searchForm: $("#searchForm"), searchBadge: $("#searchBadge"),
     cover: $("#cover"), coverImg: $("#coverImg"), artA: $("#artA"), artB: $("#artB"), turntable: $("#turntableWrap"),
-    npTitle: $("#npTitle"), npArtist: $("#npArtist"), npQuality: $("#npQuality"), npCached: $("#npCached"), npActions: $("#npActions"),
+    npTitle: $("#npTitle"), npArtist: $("#npArtist"), npQuality: $("#npQuality"), npCached: $("#npCached"),
+    trackMoreWrap: $("#trackMoreWrap"), btnTrackMore: $("#btnTrackMore"), npActions: $("#npActions"),
     npLyricTicker: $("#npLyricTicker"), npLyricLine: $("#npLyricLine"),
     stageSourceLabel: $("#stageSourceLabel"), vinylModeLabel: $("#vinylModeLabel"),
     prog: $("#progTrack"), progFill: $("#progFill"), progBuf: $("#progBuf"), progTip: $("#progTip"), timeCur: $("#timeCur"), timeTot: $("#timeTot"),
-    play: $("#btnPlay"), mode: $("#btnMode"), vol: $("#btnVol"), volSlider: $("#volSlider"), level: $("#audioLevel"),
+    play: $("#btnPlay"), mode: $("#btnMode"), vol: $("#btnVol"), volSlider: $("#volSlider"), level: $("#audioLevel"), levelText: $("#audioLevelText"),
     mini: $("#mini"), miniCover: $("#miniCover"), miniTitle: $("#miniTitle"), miniArtist: $("#miniArtist"), miniFill: $("#miniFill"), miniPlay: $("#miniPlay"),
     panelBody: $("#panelBody"), panelSub: $("#panelSub"), countMy: $("#countMy"), countRadio: $("#countRadio"), listFilter: $("#listFilter"),
     panelBatch: $("#panelBatch"), btnPlayAll: $("#btnPlayAll"), btnAddAll: $("#btnAddAll"),
@@ -68,7 +69,7 @@
   // ── state ────────────────────────────────────────────────────────────
   var S = { playlist: [], radio: [], radioDate: "", temp: [], source: "my", idx: -1, mode: "loop", pos: 0 };
   var level = "exhigh";
-  var curTheme = "aurora";
+  var curTheme = "obsidian";
   var coverAccentOn = false;
   var cur = null;                 // the track on the stage (a copy, enriched by /api/song)
   var view = "search";
@@ -87,20 +88,18 @@
   var prefetchedFor = -1;
   var bag = [], bagKey = "", shuffleHist = [];
   var radioLoading = false;
-  // 灵感频道: [name, line, colour, NetEase playlist id, keyword if the list fails].
-  // A keyword search mostly finds tracks *named* "爵士咖啡馆", so each card opens
-  // a list — the official charts where there is one, else a well-played playlist.
+  // 馆藏选辑频道: [name, line, catalog tag, NetEase playlist id, keyword fallback].
   var MOODS = [
-    ["流行热歌", "华语流行 · 热门榜单", "#38bdf8", "3778678", "华语流行"],
-    ["独立民谣", "吉他叙事 · 温暖治愈", "#34d399", "5059661515", "独立民谣"],
-    ["日系动漫", "ACG 原声 · J-Pop", "#fb7185", "71385702", "日系动漫"],
-    ["R&B 夜色", "微醺律动 · 深夜电台", "#a78bfa", "9260008202", "R&B"],
-    ["爵士咖啡馆", "慵懒萨克斯 · 钢琴三重奏", "#fb923c", "8224040700", "爵士"],
-    ["轻音乐", "专注学习 · 氛围纯音", "#818cf8", "8728716144", "轻音乐"],
-    ["粤语经典", "港乐黄金年代", "#f472b6", "2237551001", "粤语经典"],
-    ["电子律动", "Synth · House · 节拍", "#22d3ee", "3812895", "电子"],
-    ["经典摇滚", "乐队现场 · 失真吉他", "#ef4444", "8481090202", "摇滚"],
-    ["影视金曲", "电影与剧集 OST", "#c084fc", "8224332029", "影视金曲"],
+    ["流行热歌", "华语流行 · 热门榜单", "MANDOPOP", "3778678", "华语流行"],
+    ["独立民谣", "吉他叙事 · 温暖治愈", "INDIE FOLK", "5059661515", "独立民谣"],
+    ["日系动漫", "ACG 原声 · J-Pop", "ANIME & J-POP", "71385702", "日系动漫"],
+    ["R&B 夜色", "微醺律动 · 深夜电台", "NIGHT R&B", "9260008202", "R&B"],
+    ["爵士咖啡馆", "慵懒萨克斯 · 钢琴三重奏", "JAZZ KISSA", "8224040700", "爵士"],
+    ["轻音乐", "专注阅读 · 器乐留白", "AMBIENT & PIANO", "8728716144", "轻音乐"],
+    ["粤语经典", "港乐黄金年代", "CANTOPOP", "2237551001", "粤语经典"],
+    ["电子律动", "Synth · House · 节拍", "ELECTRONICA", "3812895", "电子"],
+    ["经典摇滚", "乐队现场 · 失真吉他", "CLASSIC ROCK", "8481090202", "摇滚"],
+    ["影视金曲", "电影与剧集原声", "CINEMA OST", "8224332029", "影视金曲"],
   ];
 
   // ── helpers ──────────────────────────────────────────────────────────
@@ -239,7 +238,7 @@
       hash = Math.imul(hash, 16777619);
     }
     var h = ((hash >>> 0) % 360) / 360;
-    return hslToRgb(h, 0.78, 0.64);
+    return hslToRgb(h, 0.36, 0.62);
   }
   function pickAccent(img) {
     try {
@@ -252,56 +251,61 @@
       for (var i = 0; i < d.length; i += 4) {
         if (d[i + 3] < 128) continue;
         var hsl = rgbToHsl(d[i], d[i + 1], d[i + 2]);
-        if (hsl[2] < 0.10 || hsl[2] > 0.94) continue;
-        var w = (hsl[1] + 0.08) * (1 - Math.abs(hsl[2] - 0.52) * 1.25);
-        if (w <= 0.05) continue;
+        if (hsl[2] < 0.08 || hsl[2] > 0.94) continue;
+        var w = (hsl[1] + 0.12) * (1 - Math.abs(hsl[2] - 0.50) * 1.2);
+        if (w <= 0.04) continue;
         var k = Math.round(hsl[0] * 18) % 18;
         var bk = buckets[k] || (buckets[k] = { w: 0, r: 0, g: 0, b: 0 });
         bk.w += w; bk.r += d[i] * w; bk.g += d[i + 1] * w; bk.b += d[i + 2] * w;
       }
       var best = null;
       Object.keys(buckets).forEach(function (key) { if (!best || buckets[key].w > best.w) best = buckets[key]; });
-      if (!best || best.w < 1.5) return null;
+      if (!best || best.w < 1.2) return null;
       var h = rgbToHsl(best.r / best.w, best.g / best.w, best.b / best.w);
-      return hslToRgb(h[0], clamp(h[1], 0.58, 0.90), clamp(h[2], 0.58, 0.70));
+      return hslToRgb(h[0], clamp(h[1], 0.24, 0.56), clamp(h[2], 0.52, 0.68));
     } catch (e) {
       return null;
     }
   }
   var COVER_PROPS = [
     "--accent-rgb", "--accent-2-rgb", "--accent", "--accent-2",
-    "--on-accent", "--art-hue", "--bg", "--bg-elev", "--glass-stage",
+    "--on-accent", "--bg", "--bg-elev",
   ];
   function applyAccent(rgb) {
+    if (rgb) {
+      var ambHsl = rgbToHsl(rgb[0], rgb[1], rgb[2]);
+      var ambRgb = hslToRgb(ambHsl[0], clamp(ambHsl[1], 0.18, 0.45), 0.56);
+      root.style.setProperty("--ambient-rgb", ambRgb.join(", "));
+    } else {
+      root.style.removeProperty("--ambient-rgb");
+    }
     if (!coverAccentOn || !rgb) {
       COVER_PROPS.forEach(function (p) { root.style.removeProperty(p); });
       body.classList.remove("cover-accent-on");
-      if (el.meta) el.meta.setAttribute("content", (THEMES[curTheme] && THEMES[curTheme].meta) || "#080c15");
+      if (el.meta) el.meta.setAttribute("content", (THEMES[curTheme] && THEMES[curTheme].meta) || "#111110");
       return;
     }
     var hsl = rgbToHsl(rgb[0], rgb[1], rgb[2]);
-    var isLight = curTheme === "daylight";
-    var rgb1 = hslToRgb(hsl[0], clamp(hsl[1], 0.65, 0.92), isLight ? clamp(hsl[2], 0.42, 0.52) : clamp(hsl[2], 0.58, 0.70));
-    var rgb2 = hslToRgb((hsl[0] + 0.11) % 1, clamp(hsl[1], 0.65, 0.92), isLight ? 0.48 : 0.64);
+    var isLight = curTheme === "washi";
+    // Gallery mineral pigment: muted saturation so UI never turns neon
+    var sat = clamp(hsl[1], 0.24, 0.48);
+    var rgb1 = hslToRgb(hsl[0], sat, isLight ? clamp(hsl[2], 0.28, 0.40) : clamp(hsl[2], 0.65, 0.76));
+    var rgb2 = hslToRgb((hsl[0] + 0.05) % 1, sat * 0.8, isLight ? 0.42 : 0.56);
     root.style.setProperty("--accent-rgb", rgb1.join(", "));
     root.style.setProperty("--accent-2-rgb", rgb2.join(", "));
     root.style.setProperty("--accent", "rgb(" + rgb1.join(", ") + ")");
     root.style.setProperty("--accent-2", "rgb(" + rgb2.join(", ") + ")");
     var lum = (0.2126 * rgb1[0] + 0.7152 * rgb1[1] + 0.0722 * rgb1[2]) / 255;
-    root.style.setProperty("--on-accent", lum > 0.55 ? "#06101b" : "#ffffff");
-    root.style.setProperty("--art-hue", Math.round(hsl[0] * 360 - 200) + "deg");
+    root.style.setProperty("--on-accent", lum > 0.52 ? "#121110" : "#faf7f2");
     if (!isLight) {
-      var bgRgb = hslToRgb(hsl[0], clamp(hsl[1] * 0.55, 0.22, 0.48), 0.06);
-      var elevRgb = hslToRgb(hsl[0], clamp(hsl[1] * 0.55, 0.22, 0.50), 0.10);
-      var stTop = hslToRgb(hsl[0], clamp(hsl[1] * 0.65, 0.28, 0.58), 0.16);
-      var stBot = hslToRgb((hsl[0] + 0.06) % 1, clamp(hsl[1] * 0.55, 0.22, 0.48), 0.08);
+      var bgRgb = hslToRgb(hsl[0], clamp(hsl[1] * 0.30, 0.06, 0.18), 0.068);
+      var elevRgb = hslToRgb(hsl[0], clamp(hsl[1] * 0.30, 0.06, 0.20), 0.098);
       root.style.setProperty("--bg", "rgb(" + bgRgb.join(",") + ")");
       root.style.setProperty("--bg-elev", "rgb(" + elevRgb.join(",") + ")");
-      root.style.setProperty("--glass-stage", "linear-gradient(165deg, rgba(" + stTop.join(",") + ", 0.78) 0%, rgba(" + stBot.join(",") + ", 0.90) 100%)");
       if (el.meta) el.meta.setAttribute("content", "rgb(" + bgRgb.join(",") + ")");
     } else {
-      ["--bg", "--bg-elev", "--glass-stage"].forEach(function (p) { root.style.removeProperty(p); });
-      var lightMeta = hslToRgb(hsl[0], 0.35, 0.93);
+      ["--bg", "--bg-elev"].forEach(function (p) { root.style.removeProperty(p); });
+      var lightMeta = hslToRgb(hsl[0], 0.16, 0.93);
       if (el.meta) el.meta.setAttribute("content", "rgb(" + lightMeta.join(",") + ")");
     }
     body.classList.add("cover-accent-on");
@@ -315,11 +319,10 @@
     return "";
   }
   function sampleAccent(raw) {
-    if (!coverAccentOn) { applyAccent(null); return; }
     raw = normCover(raw || activeCoverRaw());
     wantedAccentRaw = raw;
     if (!raw) {
-      applyAccent(seedAccent((cur && (cur.name || cur.artist || cur.id)) || "kazam-vinyl"));
+      applyAccent(coverAccentOn ? seedAccent((cur && (cur.name || cur.artist || cur.id)) || "kazam-vinyl") : null);
       return;
     }
     if (accentCache[raw]) { applyAccent(accentCache[raw]); return; }
@@ -337,12 +340,12 @@
     img.onload = function () {
       var rgb = pickAccent(img) || seedAccent((cur && (cur.name || cur.artist || cur.id)) || raw);
       accentCache[raw] = rgb;
-      if (coverAccentOn && wantedAccentRaw === raw) applyAccent(rgb);
+      if (wantedAccentRaw === raw) applyAccent(rgb);
     };
     img.onerror = function () {
       var fallback = seedAccent((cur && (cur.name || cur.artist || cur.id)) || raw);
       accentCache[raw] = fallback;
-      if (coverAccentOn && wantedAccentRaw === raw) applyAccent(fallback);
+      if (wantedAccentRaw === raw) applyAccent(fallback);
     };
     img.src = src;
   }
@@ -414,21 +417,30 @@
     if (el.npLyricLine) el.npLyricLine.textContent = text || "";
   }
 
+  function closeTrackActions() {
+    if (el.npActions) el.npActions.hidden = true;
+    if (el.btnTrackMore) {
+      el.btnTrackMore.classList.remove("on");
+      el.btnTrackMore.setAttribute("aria-expanded", "false");
+    }
+  }
+
   function paintNowPlaying() {
     var t = cur;
     body.classList.toggle("no-track", !t);
     el.mini.hidden = !t;
-    el.npActions.hidden = !t;
+    if (el.trackMoreWrap) el.trackMoreWrap.hidden = !t;
+    if (!t) closeTrackActions();
     el.npTitle.textContent = t ? t.name || String(t.id) : "KAZAM";
-    el.npArtist.textContent = t ? [t.artist || "未知歌手", t.album].filter(Boolean).join(" · ") : "搜一首歌开始吧";
+    el.npArtist.textContent = t ? [t.artist || "未知歌手", t.album].filter(Boolean).join(" · ") : "静候选曲";
     el.miniTitle.textContent = t ? t.name || String(t.id) : "";
     el.miniArtist.textContent = t ? t.artist || "" : "";
-    document.title = t ? (t.name || t.id) + (t.artist ? " · " + t.artist : "") + " — KAZAM" : "KAZAM · 听歌";
+    document.title = t ? (t.name || t.id) + (t.artist ? " · " + t.artist : "") + " — KAZAM" : "KAZAM · 听音室";
     if (el.stageSourceLabel) {
-      el.stageSourceLabel.textContent = !t ? "STUDIO READY" : S.source === "radio" ? "TODAY RADIO · FM"
-        : S.source === "temp" ? "PLAY ALL · QUEUE" : "MY PLAYLIST · HI-FI";
+      el.stageSourceLabel.textContent = !t ? "SIDE A · STANDBY" : S.source === "radio" ? "FM · TODAY RADIO"
+        : S.source === "temp" ? "QUEUE · SELECTION" : "SIDE A · MY LIST";
     }
-    if (!t) setStageLyricText("搜一首歌，开启高解析音乐之旅");
+    if (!t) setStageLyricText("搜一首歌，或自右侧选辑开启聆听");
     var q = qualityLabel(t);
     el.npQuality.hidden = !q;
     el.npQuality.textContent = q;
@@ -827,9 +839,11 @@
     var changed = v !== level;
     level = v;
     el.level.value = v;
+    var optText = el.level.options[el.level.selectedIndex] ? el.level.options[el.level.selectedIndex].text : v;
+    if (el.levelText) el.levelText.textContent = optText;
     try { localStorage.setItem(LEVEL_KEY, v); } catch (_) {}
     if (opts && opts.silent) return;
-    toast("音质：" + el.level.options[el.level.selectedIndex].text);
+    toast("音质：" + optText);
     if (changed && cur && audio.getAttribute("src")) {
       // same song at another quality, from the same moment
       var at = audio.currentTime, wasPlaying = !audio.paused;
@@ -852,11 +866,12 @@
       : v === "radio" ? actBtn("add", "#i-plus", "加入我的列表", true)
       : actBtn("add", "#i-plus", "加入我的列表", true);
     var sub = esc(t.artist || "未知歌手") + (t.album ? " · " + esc(t.album) : "");
+    var num = String(i + 1).padStart(2, "0");
     return '<div class="row" role="button" tabindex="0" data-i="' + i + '" data-id="' + esc(t.id) + '">' +
       (sortable ? '<span class="grip" draggable="true" title="拖动排序"><svg class="icon"><use href="#i-grip"/></svg></span>' : "") +
-      '<span class="idx"><b>' + (i + 1) + '</b><span class="eq"><i></i><i></i><i></i></span></span>' +
-      '<span class="thumb">' + imgTag(t.cover, 100, 46) + "</span>" +
-      '<span class="txt"><b>' + esc(t.name || t.id) + (admin.on && t.cached ? '<span class="badge">缓存</span>' : "") + "</b><small>" + sub + "</small></span>" +
+      '<span class="idx"><b>' + num + '</b><span class="eq"><i></i><i></i><i></i></span></span>' +
+      '<span class="thumb">' + imgTag(t.cover, 100, 42) + "</span>" +
+      '<span class="txt"><b>' + esc(t.name || t.id) + (admin.on && t.cached ? '<span class="badge">LOCAL</span>' : "") + "</b><small>" + sub + "</small></span>" +
       '<span class="dur">' + fmtMs(t.duration) + "</span>" +
       '<span class="acts">' + quick + actBtn("more", "#i-more", "更多") + "</span></div>";
   }
@@ -869,29 +884,31 @@
     var histSec = "";
     if (searchHist.length) {
       histSec = '<div class="discover-sec">' +
-        '<div class="discover-sec-head"><span>最近搜索</span><button type="button" data-act="clear-hist">清空</button></div>' +
+        '<div class="discover-sec-head"><span>RECENT · 最近检索</span><button type="button" data-act="clear-hist">清空</button></div>' +
         '<div class="chip-list">' + searchHist.map(function (k) {
           return '<button type="button" class="chip" data-kw="' + esc(k) + '">' + esc(k) + "</button>";
         }).join("") + "</div></div>";
     }
     var moods = MOODS.map(function (m, i) {
-      return '<button type="button" class="mood-card" style="--mood-color:' + (m[2] || "#f5b942") + '" data-mood="' + i + '">' +
-        "<b>" + esc(m[0]) + "</b><small>" + esc(m[1]) + "</small></button>";
+      var idx = String(i + 1).padStart(2, "0");
+      return '<button type="button" class="mood-card" data-mood="' + i + '">' +
+        '<span class="mood-meta"><span class="mood-idx">' + idx + '</span><span>' + esc(m[2] || "") + "</span></span>" +
+        '<span class="mood-body"><b>' + esc(m[0]) + "</b><small>" + esc(m[1]) + "</small></span></button>";
     }).join("");
     return '<div class="discover">' +
       '<div class="discover-hero">' +
         '<button type="button" class="hero-card" data-act="radio">' +
-          '<span class="hero-card-icon"><svg class="icon"><use href="#i-radio"/></svg></span>' +
-          '<span class="hero-card-txt"><b>今日电台 · 随心听</b><small>每次随机挑一批精选好歌，不占你的列表</small></span>' +
+          '<span class="hero-card-top"><span>NO. 01 · DAILY BROADCAST</span><svg class="icon"><use href="#i-arrow-ne"/></svg></span>' +
+          '<span class="hero-card-txt"><b>今日电台 · 随心漫游</b><small>随机抽取一批馆藏精选曲目，独立队列，不惊扰你的私人歌单</small></span>' +
         "</button>" +
-        '<button type="button" class="hero-card secondary" data-act="import-netease">' +
-          '<span class="hero-card-icon"><svg class="icon"><use href="#i-list-plus"/></svg></span>' +
-          '<span class="hero-card-txt"><b>导入网易云歌单</b><small>粘贴歌单或单曲链接 / ID 一键同步解析</small></span>' +
+        '<button type="button" class="hero-card" data-act="import-netease">' +
+          '<span class="hero-card-top"><span>NO. 02 · ARCHIVE IMPORT</span><svg class="icon"><use href="#i-arrow-ne"/></svg></span>' +
+          '<span class="hero-card-txt"><b>导入网易云歌单</b><small>粘贴歌单或单曲链接与数字 ID，一键同步曲目至本机列表</small></span>' +
         "</button>" +
       "</div>" +
       histSec +
       '<div class="discover-sec">' +
-        '<div class="discover-sec-head"><span>灵感频道 · 点一下立即探索</span></div>' +
+        '<div class="discover-sec-head"><span>CURATED ISSUES · 馆藏选辑</span></div>' +
         '<div class="mood-grid">' + moods + "</div>" +
       "</div>" +
     "</div>";
@@ -1361,17 +1378,17 @@
   function renderLyrics() {
     var html;
     if (!cur) {
-      html = emptyHTML("#i-lyrics", "还没有在播的歌");
-      setStageLyricText("搜一首歌，开启高解析音乐之旅");
+      html = emptyHTML("#i-lyrics", "尚未选播曲目");
+      setStageLyricText("搜一首歌，或自右侧选辑开启聆听");
     } else if (lyric.state === "idle") {
-      html = emptyHTML("#i-lyrics", "开始播放后显示歌词");
-      setStageLyricText("点击播放 · 同步显示歌词");
+      html = emptyHTML("#i-lyrics", "开始播放后呈现歌词");
+      setStageLyricText("点击播放 · 同步呈现歌词");
     } else if (lyric.state === "loading") {
-      html = '<div class="empty"><small>歌词加载中…</small></div>';
+      html = '<div class="empty"><small>歌词载入中…</small></div>';
       setStageLyricText("正在载入同步歌词…");
     } else if (!lyric.lines.length) {
-      html = emptyHTML("#i-lyrics", "这首歌暂时没有歌词", "可能是纯音乐，或者上游没有提供");
-      setStageLyricText("纯音乐或暂无歌词 · 尽享旋律");
+      html = emptyHTML("#i-lyrics", "此曲暂无歌词", "可能是器乐作品，或上游未收录词本");
+      setStageLyricText("纯音乐或暂无歌词 · 静听器乐");
     } else {
       html = lyric.lines.map(function (l, i) {
         return '<p data-i="' + i + '">' + esc(l.orig || l.tran) + (l.orig && l.tran ? "<small>" + esc(l.tran) + "</small>" : "") + "</p>";
@@ -1799,8 +1816,18 @@
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { toast(okMsg || "已复制"); }, fallback);
     else fallback();
   }
-  $("#btnDlSong").addEventListener("click", function () { if (cur) downloadSong(cur); });
+  if (el.btnTrackMore && el.npActions) {
+    el.btnTrackMore.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var open = el.npActions.hidden;
+      el.npActions.hidden = !open;
+      el.btnTrackMore.classList.toggle("on", open);
+      el.btnTrackMore.setAttribute("aria-expanded", String(open));
+    });
+  }
+  $("#btnDlSong").addEventListener("click", function () { closeTrackActions(); if (cur) downloadSong(cur); });
   $("#btnDlLyric").addEventListener("click", function () {
+    closeTrackActions();
     if (!cur) return;
     var a = document.createElement("a");
     a.href = "/api/download-lyric/" + enc(cur.id);
@@ -1809,6 +1836,7 @@
     a.remove();
   });
   $("#btnShare").addEventListener("click", function () {
+    closeTrackActions();
     if (!cur) return;
     var url = publicBase + "/?play=" + enc(cur.id);
     if (isPhone() && navigator.share) {
@@ -1914,8 +1942,9 @@
       toast("已缓存：" + (patch.name || t.id));
     });
   }
-  $("#btnCacheSong").addEventListener("click", function () { if (cur) cacheTrack(cur); });
+  $("#btnCacheSong").addEventListener("click", function () { closeTrackActions(); if (cur) cacheTrack(cur); });
   $("#btnCopyUrl").addEventListener("click", function () {
+    closeTrackActions();
     if (!cur) return;
     copyText(publicBase + "/api/stream/" + enc(cur.id) + "?level=" + level, "已复制播放地址（" + LEVEL_LABELS[level] + "）");
   });
@@ -2058,7 +2087,7 @@
   });
 
   function setTheme(id, silent) {
-    if (!THEMES[id]) id = "aurora";
+    if (!THEMES[id]) id = "obsidian";
     curTheme = id;
     root.setAttribute("data-theme", id);
     if (el.themeList) {
@@ -2068,7 +2097,7 @@
     }
     try { localStorage.setItem(THEME_KEY, id); } catch (_) {}
     sampleAccent(cur ? cur.cover : "");
-    if (!silent) toast("主题配色：" + THEMES[id].name);
+    if (!silent) toast("纸墨基调：" + THEMES[id].name);
   }
   // a theme picked by hand (menu or T) turns 封面取色 off, or the cover colours would hide it
   function pickTheme(id) {
@@ -2113,25 +2142,28 @@
       syncCoverAccentUI();
       try { localStorage.setItem(COVER_ACCENT_KEY, coverAccentOn ? "1" : "0"); } catch (_) {}
       sampleAccent(cur ? cur.cover : "");
-      toast(coverAccentOn ? "已开启：跟随专辑封面动态取色" : "已关闭封面取色，恢复纯正主题色");
+      toast(coverAccentOn ? "已开启：跟随专辑封面矿物取色" : "已关闭封面取色，恢复无彩器物原色");
     });
   }
   document.addEventListener("click", function (e) {
     if (el.themeMenu && !el.themeMenu.hidden && !el.themeMenu.contains(e.target) && e.target !== el.btnTheme) {
       closeThemeMenu();
     }
+    if (el.npActions && !el.npActions.hidden && el.trackMoreWrap && !el.trackMoreWrap.contains(e.target)) {
+      closeTrackActions();
+    }
   });
 
   function syncVinylUI() {
     var on = body.classList.contains("vinyl-on");
-    if (el.vinylModeLabel) el.vinylModeLabel.textContent = on ? "黑胶唱机" : "专辑画幅";
+    if (el.vinylModeLabel) el.vinylModeLabel.textContent = on ? "黑胶唱盘" : "专辑封套";
     if (el.btnVinyl) el.btnVinyl.setAttribute("aria-pressed", String(on));
   }
   function toggleVinylMode() {
     var on = body.classList.toggle("vinyl-on");
     syncVinylUI();
     try { localStorage.setItem("kazam.vinylMode", on ? "1" : "0"); } catch (_) {}
-    toast(on ? "已切换为黑胶唱机模式" : "已切换为方形专辑画幅");
+    toast(on ? "已切换为黑胶唱盘" : "已切换为 12 寸专辑封套");
   }
   if (el.btnVinyl) el.btnVinyl.addEventListener("click", toggleVinylMode);
 
@@ -2248,6 +2280,7 @@
     var tag = (e.target && e.target.tagName) || "";
     if (e.key === "Escape") {
       if (el.themeMenu && !el.themeMenu.hidden) { closeThemeMenu(); return; }
+      if (el.npActions && !el.npActions.hidden) { closeTrackActions(); return; }
       if (!el.menu.hidden) { closeMenu(); return; }
       if (!el.exportMenu.hidden) { closeExport(); return; }
       if (body.classList.contains("sheet-open")) { closeSheet(false); return; }

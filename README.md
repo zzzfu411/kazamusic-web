@@ -1,205 +1,63 @@
-# KAZAM VPS
+# KAZAM Web
 
-独立部署的网易云听歌小工具，面向 `music.yeuxark.com`，并可对接个人主页 `yeuxark.com`。
+A self-hosted Flask web music player and streaming proxy with multi-upstream audio resolution, server-side disk caching, synchronized lyrics, and an embeddable mini-player.
 
-## 功能一览
+English · [简体中文](README.zh-CN.md)
 
-| 功能 | 说明 |
-|------|------|
-| 搜索 / 播放 / 歌词 / 下载 | 点一下就播；歌词跟着走，点一行跳过去 |
-| **我的列表 · 今日电台** | 存在本机 `localStorage`，互不覆盖；拖动或 Alt+↑↓ 排序，「下一首播放」 |
-| **解析** | 搜索框里粘贴歌曲 ID 或网易云链接，直接加入列表并播放 |
-| **导入 / 导出** | 网易云歌单（替换或追加）、JSON / M3U / 文本 |
-| **服务端缓存 · 曲库** | 管理员把音频落到服务器磁盘，CDN 过期仍可播 |
-| 稳定 stream 地址 | `/api/stream/{id}`（电台请用这个，不要存 CDN 直链） |
-| 嵌入播放器 | `/embed?id={id}` |
-| 分享深链 | `/?play={id}` · `/?parse={id或链接}` · `/?q={关键词}` |
+## Features
 
-界面是「封面取色 · 沉浸式」：背景是当前封面的模糊大图，主色从封面里取；手机上列表在前、底部迷你播放条，点开是全屏播放页（可切歌词）。支持锁屏 / 耳机控制（Media Session）、刷新后从上次的位置接着听。快捷键：空格 播放/暂停 · ←/→ 上/下一首 · Shift+←/→ 快退/快进 10 秒 · ↑/↓ 音量 · M 静音 · L 歌词 · / 搜索。
+- **Multi-upstream resolution** — Searches and resolves tracks across configurable backends (`GD Studio`, `ChKSz`, `Meting`, `ORS`, `HiFLAC`) with automatic fallback (`GD` → `ChKSz` → `Meting`), single-flight request deduplication, and selectable audio quality (`standard` through `lossless` / `jymaster`).
+- **Server-side disk cache** — Admin-triggered caching (`POST /api/cache/{id}`) persists audio, cover art, and lyrics under `data/cache/` so `/api/stream/{id}` survives upstream CDN link expiry, with optional Nginx `X-Accel-Redirect` offload.
+- **Ambient player & local queues** — Cover-derived color palette, click-to-seek synchronized lyrics, Media Session lock-screen controls, keyboard shortcuts, and separate `localStorage` playlists with NetEase playlist, JSON, M3U, and plain-text import/export.
+- **Stable stream & embed endpoints** — Exposes `/api/stream/{id}` with HTTP `Range` passthrough, `/api/parse` for bare song IDs or NetEase URLs, `/embed?id={id}` iframe widgets, and shareable deep links (`/?play=`, `/?parse=`, `/?q=`).
+- **Outbound SSRF guards** — Validates upstream audio redirects and `/api/cover-proxy` requests against host-suffix allowlists, ports `80`/`443`, and public-IP resolution (`safe_fetch.py`).
 
-## 快速启动（开发）
+## Quick Start
+
+Requires **Python 3.12+** (or **Docker**).
 
 ```bash
-cd vps_version
-python -m venv .venv
-# Windows: .venv\Scripts\activate
+git clone https://github.com/zzzfu411/kazamusic-web.git
+cd kazamusic-web
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # 按需改 PUBLIC_BASE_URL
+cp .env.example .env
 python app.py
-# → http://127.0.0.1:8080
 ```
 
-## Docker 部署
+Open `http://127.0.0.1:8080` in your browser, or deploy with Docker Compose:
 
 ```bash
-cd vps_version
 docker compose up -d --build
 ```
 
-- 应用：`http://VPS_IP:8080`
-- 缓存卷：`kazam_cache` → 容器内 `/app/data/cache`
-- 反代：参考 `nginx.conf.example`，域名 `music.yeuxark.com`
+## Configuration
 
-## 环境变量（节选）
+Copy `.env.example` to `.env` before starting. Click the top-left `KAZAM` wordmark five times in the web UI to unlock admin controls (disk caching, upstream toggles, and quota inspection).
 
-见 `.env.example`：
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `HOST` / `PORT` | `0.0.0.0` / `8080` | Bind address and HTTP listen port |
+| `PUBLIC_BASE_URL` | `https://music.yeuxark.com` | Public base URL for share and embed links |
+| `CORS_ORIGINS` | `https://yeuxark.com,...` | Comma-separated allowed cross-origin domains |
+| `UPSTREAM_API` | `https://api.chksz.com/api` | Primary ChKSz endpoint (paired with `CHKSZ_API_KEY`) |
+| `METING_APIS` | `https://api.qijieya.cn/meting/` | Comma-separated Meting fallback endpoints |
+| `AUDIO_LEVEL` | `exhigh` | Default quality (`standard`, `higher`, `exhigh`, `lossless`, `hires`, `jymaster`) |
+| `CACHE_DIR` | `./data/cache` | Directory for cached audio, lyrics, and WebP covers |
+| `KAZAM_CACHE_ACCEL` | *(unset)* | Internal Nginx `X-Accel-Redirect` prefix (e.g. `/_kazam_cache/`) |
+| `KAZAM_UPSTREAM_PROXY` | *(unset)* | Optional `CONNECT` relay URL for datacenter-blocked upstreams |
+| `ADMIN_PASSWORD` | `change-me` | Password for admin login and server-side cache mutations |
 
-- `PUBLIC_BASE_URL` — 对外根地址
-- `CORS_ORIGINS` — 允许跨域的个人站域名
-- `CACHE_DIR` — 服务端音频缓存目录
-- `AUDIO_LEVEL` — 默认音质
+## Verification & Documentation
+
+```bash
+python qa_check.py  # route, parser, SSRF guard, and Flask client checks
+```
+
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — Production permissions, Nginx `X-Accel-Redirect`, `CONNECT` relay (`deploy/relay/`), HTTP API table, and external site integration
+- [nginx.conf.example](nginx.conf.example) & [deploy/](deploy/) — Sample reverse-proxy, systemd (`kazam.service`), and relay unit files
 
 ---
 
-## 用法
-
-### 解析链接 / ID
-
-在搜索框粘贴 `19723756` 或 `https://music.163.com/song?id=19723756`，回车：解析歌名、封面 → 加入「我的列表」→ 开始播放。
-
-```http
-GET /api/parse?q=19723756
-GET /api/parse?q=https://music.163.com/song?id=19723756
-```
-
-返回含：`name` / `artist` / `cover` / `streamUrl` / `pageUrl` / `embedUrl` / `cached`
-
-### 管理员与服务端缓存
-
-连点左上角 KAZAM 五次，输入管理员密码（`.env` 的 `ADMIN_PASSWORD`）。这个入口写在页面上，所以 nginx 给 `/api/admin/login` 限了速：同一地址每分钟 6 次（可连试 4 次），再多回 429，页面会提示「试得太频繁」（见 `deploy/music.yeuxark.com.nginx`）。之后：
-
-1. 播放页的「缓存」或歌曲菜单里的「缓存到服务器」把音频写入 `data/cache/{id}.audio.*`，封面、歌词一并保存
-2. 之后 `/api/stream/{id}` **优先读本地文件**（响应头 `X-Kazam-Cache: hit`）
-3. 「曲库」标签列出所有已缓存曲目；右上角可管理上游、看 ChKSz 额度
-
-```http
-POST /api/cache/{id}             # 触发缓存（管理员）
-GET  /api/cache/{id}/status      # 是否已缓存
-GET  /api/cache/{id}/cover?size= # 缓存封面的 WebP 小图（160 / 320 / 480）
-GET  /api/library                # 曲库列表
-DELETE /api/cache/{id}           # 删除缓存（管理员）
-```
-
-### 性能相关
-
-- 搜索结果在内存里缓存 10 分钟，歌词 6 小时；今日电台的关键词并行搜索
-- 封面：网易图片按显示尺寸向网易 CDN 要（`param=NyN`）；`/api/cover-proxy?url=…&size=` 也会缩放并缓存到 `data/cache/_covers/`
-- 歌单（`/api/playlist/{id}`）读到后在内存里留 30 分钟：「灵感频道」的卡片打开的是固定的网易云歌单（官方榜单优先），反复点不重复花额度
-- 播放中只有显卡在动：均衡器小条用 `scaleY` 而不是改高度，背景光球只在播放时漂；页面空闲时不画任何东西
-- 未缓存的歌：一次 GET 直达 CDN 并透传 Range（不再先探测、HEAD），链接失效自动重新解析一次
-- 同一首歌的上游查询合并成一次（播放器同时请求音频和元数据也只花一次额度）
-- 静态文件带内容哈希 `?v=`，缓存一年；nginx 对 JSON / JS / CSS 开 gzip（见 `deploy/`）
-- gunicorn 用 16 个线程（`deploy/kazam.service`）：未缓存的歌由程序转发，播放期间占一个线程
-- 已缓存的音频交给 nginx 发送（X-Accel-Redirect）：`.env` 里设 `KAZAM_CACHE_ACCEL=/_kazam_cache/`，nginx 的 `internal` location 指向缓存目录（见 `deploy/music.yeuxark.com.nginx`）。程序只做检查、立刻交出去，Range / 拖动进度由 nginx 处理，不占线程
-
-### 线上目录与权限（music.yeuxark.com）
-
-- 缓存实际在 `/srv/kazam/cache`（`yeux:www-data`，目录 `2750` 带 setgid，新文件自动归 `www-data` 组），`data/cache` 是指向它的符号链接。nginx（`www-data`）只能读这一个目录，`/home/yeux` 保持 `750` 不对它开放
-- 不要用 `CACHE_DIR` 环境变量搬缓存：`runtime.json` 的位置是 `CACHE_DIR` 的上一级，改了会让后台设置（上游、密钥）找不到。要搬就像上面那样换成符号链接
-- `.env`、`config.py`、`.env.example`、`deploy_test_admin.py` 在服务器上是 `600`（含管理员密码 / 密钥）；改了 `.env` 要 `systemctl restart kazam`（它由 systemd 的 `EnvironmentFile` 读取，`kill -HUP` 不会重读）
-- GD 音乐台和无损站拒绝 Azure 的地址，这两家的请求经 `.env` 的 `KAZAM_UPSTREAM_PROXY` 走 VPS 23 上的中转（`deploy/relay/`：只放行音乐服务器的地址和这几个主机的 80/443，Basic 认证，最多 64 条隧道，以无特权的动态用户运行）
-- 首选源失败时回退到别的源：回退源只给了链接没给歌名时，歌名、歌手、封面先取首选源的，再用 Meting 补；数字 ID 一律原样返回（不会变成 `gd:netease:…`）
-- GD 封面（`/api/gd/pic`）按需查询：同时最多 4 个，一次最多 3+5 秒、不重试，失败记 2 分钟
-- 上游给的音频链接和 Meting 的跳转都逐跳检查（`safe_fetch.py`）：只走 http(s)、不带账号、域名解析出来全是公网地址，跳转最多 5 次；音频散在各家 CDN 上，所以不列主机白名单，靠「只连公网」挡住打内网的链接
-- auto 模式和回退用同一个顺序：GD 网易云 → chksz → Meting（免费的完整音轨在前，Meting 的试听片段最后）
-- GD 的签名要带它播放器的版本号：每 6 小时从 player.js 读一次；读失败只用默认值 5 分钟，签名被拒时重读（一分钟最多一次）
-
----
-
-## 对接 yeuxark.com
-
-### A. 电台：只存 ID，播放走 stream
-
-```js
-// 推荐：稳定地址，不要存 m801.music.126.net 直链
-audio.src = `https://music.yeuxark.com/api/stream/${neteaseId}`;
-```
-
-### B. 后台「解析并填入」
-
-```js
-async function fillFromNetease(input) {
-  const r = await fetch(
-    "https://music.yeuxark.com/api/parse?q=" + encodeURIComponent(input)
-  );
-  const j = await r.json();
-  if (!j.ok) throw new Error(j.error);
-  // j.data.name / artist / cover / streamUrl
-  document.querySelector("[name=title]").value = j.data.name;
-  document.querySelector("[name=artist]").value = j.data.artist;
-  document.querySelector("[name=cover]").value = j.data.cover;
-  document.querySelector("[name=audio]").value = j.data.streamUrl;
-  document.querySelector("[name=neteaseId]").value = j.data.id;
-}
-```
-
-### C. 可选：解析后立刻服务端缓存（更稳）
-
-```js
-await fetch(`https://music.yeuxark.com/api/cache/${id}`, { method: "POST" });
-// 之后 stream 走磁盘，不怕 CDN 过期
-```
-
-注意：缓存占 VPS 磁盘；公开站点请自行加鉴权/限流（当前版本未强制登录）。
-
-### D. 嵌入迷你播放器
-
-```html
-<iframe
-  src="https://music.yeuxark.com/embed?id=19723756"
-  width="400" height="100"
-  style="border:0;border-radius:8px;overflow:hidden"
-  loading="lazy"
-  allow="autoplay"
-></iframe>
-```
-
-### E. CORS
-
-默认允许：
-
-- `https://yeuxark.com`
-- `https://www.yeuxark.com`
-- `https://music.yeuxark.com`
-
-在 `.env` 的 `CORS_ORIGINS` 中追加即可。
-
----
-
-## 主要 API
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/health` | 健康检查 + 缓存数量 |
-| GET | `/api/parse?q=` | 解析 ID/链接 |
-| GET | `/api/search?q=` | 搜索 |
-| GET | `/api/song/{id}` | 元数据 + 稳定 URL |
-| GET | `/api/resolve/{id}` | 轻量解析（电台） |
-| GET | `/api/stream/{id}` | 播放流（缓存优先） |
-| POST | `/api/cache/{id}` | 缓存到磁盘 |
-| GET | `/api/library` | 服务端曲库 |
-| GET | `/embed?id=` | 嵌入页 |
-
----
-
-## 目录结构
-
-```text
-vps_version/
-  app.py
-  config.py
-  requirements.txt
-  Dockerfile
-  docker-compose.yml
-  nginx.conf.example
-  static/          # CSS / JS
-  templates/       # index + embed
-  data/cache/      # 服务端音频缓存（运行时）
-```
-
-## 安全与合规提示
-
-- 封面代理 `/api/cover-proxy` 只取名单里的图片域名（`app.py` 的 `_COVER_SUFFIXES` 加上已配置上游源的域名），按**后缀**匹配（`qq.com` 不放行 `qq.com.example.net`），只走 80 / 443，解析出的地址必须是公网地址，每次跳转都重新检查。名单曾按「包含」匹配，`http://qq.com.localtest.me:8080/…` 能让服务器去访问它自己的内网端口；加新的封面来源时只往名单里加域名后缀
-- 上游依赖第三方 `UPSTREAM_API`，可用性不保证
-- 公网部署建议：反代 HTTPS、限流、可选访问密码
-- 仅供个人学习/自用；注意版权与服务条款
+For personal learning and self-hosted use only; respect the terms of service and copyright rules of upstream platforms.
